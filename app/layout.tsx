@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Space_Grotesk, VT323 } from "next/font/google";
 import Link from "next/link";
 import Eq from "@/components/Eq";
+import RadioPlayer from "@/components/RadioPlayer";
 import "./globals.css";
 
 const sans = Space_Grotesk({ subsets: ["latin"], variable: "--font-sans" });
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <footer className="footer shell">
           fwd.fm · feito de fone de ouvido · links via song.link &amp; Deezer
         </footer>
+        <RadioPlayer />
       </body>
     </html>
   );

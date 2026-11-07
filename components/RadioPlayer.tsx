@@ -1,0 +1,246 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { RadioTrack } from "@/lib/radio";
+
+const DISMISS_KEY = "fwd.radio.off";
+const BARS = 28;
+const COLORS = ["#c6ff3d", "#3df2ff", "#ff3df2"];
+
+type Status = "loading" | "ready" | "playing" | "paused" | "error";
+
+/**
+ * Floating mini player that greets every visit with a random 30s preview.
+ *
+ * Browsers block audio with sound until the visitor interacts with the page,
+ * so we try to autoplay and otherwise wait on a pulsing play button. The waves
+ * read the real audio through an AnalyserNode once the visitor taps play (an
+ * AudioContext created without a gesture starts suspended and would mute the
+ * element); until then they are drawn from a synthetic signal.
+ */
+export default function RadioPlayer() {
+  const [hidden, setHidden] = useState(true);
+  const [track, setTrack] = useState<RadioTrack | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+  const statusRef = useRef<Status>("loading");
+  statusRef.current = status;
+
+  const load = useCallback(async (autoplay: boolean) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/random", { cache: "no-store" });
+      const data = (await res.json()) as { track?: RadioTrack };
+      if (!data.track) throw new Error("no track");
+      setTrack(data.track);
+      audio.src = data.track.preview;
+      if (!autoplay) {
+        setStatus("ready");
+        return;
+      }
+      try {
+        await audio.play();
+        setStatus("playing");
+      } catch {
+        // autoplay blocked: wait for a tap
+        setStatus("ready");
+      }
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    let off = false;
+    try {
+      off = sessionStorage.getItem(DISMISS_KEY) === "1";
+    } catch {
+      // storage blocked: show the player
+    }
+    if (off) return;
+    setHidden(false);
+    load(true);
+  }, [load]);
+
+  // leave room so the player never covers the end of the page
+  useEffect(() => {
+    document.documentElement.classList.toggle("has-radio", !hidden);
+    return () => document.documentElement.classList.remove("has-radio");
+  }, [hidden]);
+
+  /** Wire the analyser; must run inside a user gesture. */
+  function connectAnalyser() {
+    const audio = audioRef.current;
+    if (!audio || analyserRef.current) {
+      ctxRef.current?.resume();
+      return;
+    }
+    try {
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.78;
+      ctx.createMediaElementSource(audio).connect(analyser);
+      analyser.connect(ctx.destination);
+      ctxRef.current = ctx;
+      analyserRef.current = analyser;
+    } catch {
+      // Web Audio unavailable: synthetic waves still run
+    }
+  }
+
+  async function toggle() {
+    const audio = audioRef.current;
+    if (!audio || !track) return;
+    connectAnalyser();
+    if (audio.paused) {
+      try {
+        await audio.play();
+        setStatus("playing");
+      } catch {
+        setStatus("error");
+      }
+    } else {
+      audio.pause();
+      setStatus("paused");
+    }
+  }
+
+  function shuffle() {
+    connectAnalyser();
+    load(true);
+  }
+
+  function close() {
+    audioRef.current?.pause();
+    setHidden(true);
+    try {
+      sessionStorage.setItem(DISMISS_KEY, "1");
+    } catch {
+      // ignore
+    }
+  }
+
+  // waves
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || hidden) return;
+    const g = canvas.getContext("2d");
+    if (!g) return;
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const freq = new Uint8Array(64);
+    let raf = 0;
+
+    function draw(t: number) {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas!.clientWidth;
+      const h = canvas!.clientHeight;
+      if (canvas!.width !== Math.round(w * dpr)) {
+        canvas!.width = Math.round(w * dpr);
+        canvas!.height = Math.round(h * dpr);
+      }
+      g!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g!.clearRect(0, 0, w, h);
+
+      const playing = statusRef.current === "playing";
+      const analyser = analyserRef.current;
+      if (playing && analyser) analyser.getByteFrequencyData(freq);
+
+      const gap = 2;
+      const bw = (w - gap * (BARS - 1)) / BARS;
+      for (let i = 0; i < BARS; i++) {
+        let v: number;
+        if (!playing) v = 0.12 + 0.05 * Math.sin(i * 0.9);
+        else if (reduced) v = 0.45;
+        else if (analyser) v = freq[Math.min(freq.length - 1, Math.floor((i / BARS) * 44))] / 255;
+        else v = 0.5 + 0.35 * Math.sin(t / 180 + i * 0.7) * Math.sin(t / 470 + i * 1.3);
+        const bh = Math.max(2, Math.min(1, v) * h);
+        g!.fillStyle = COLORS[i % COLORS.length];
+        g!.fillRect(i * (bw + gap), h - bh, bw, bh);
+      }
+
+      if (playing && !reduced) raf = requestAnimationFrame(draw);
+    }
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [hidden, status]);
+
+  const label =
+    status === "loading" ? "sintonizando…" : status === "error" ? "fora do ar" : status === "playing" ? "no ar" : "pronta";
+
+  return (
+    <>
+      {/* kept mounted so the element (and its audio graph) survives track changes */}
+      <audio ref={audioRef} crossOrigin="anonymous" preload="auto" onEnded={() => load(true)}
+        onError={() => statusRef.current !== "loading" && setStatus("error")}
+      />
+      {!hidden && (
+        <aside className={`radio radio-${status}`} aria-label="rádio aleatória do fwd.fm">
+          {track?.cover ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- Deezer CDN cover */
+            <img className="radio-cover" src={track.cover} alt="" referrerPolicy="no-referrer" />
+          ) : (
+            <span className="radio-cover" aria-hidden="true" />
+          )}
+
+          <div className="radio-meta">
+            <span className="radio-label">
+              <span className="radio-dot" /> rádio fwd · {label}
+            </span>
+            {track ? (
+              <a className="radio-title" href={track.link} target="_blank" rel="noopener" title="abrir no Deezer">
+                <strong>{track.title}</strong> <span>· {track.artist}</span>
+              </a>
+            ) : (
+              <span className="radio-title">
+                <strong>{status === "error" ? "não rolou agora" : "procurando uma música…"}</strong>
+              </span>
+            )}
+            <canvas ref={canvasRef} className="radio-waves" aria-hidden="true" />
+          </div>
+
+          <div className="radio-ctrl">
+            <button
+              type="button"
+              className="radio-play"
+              onClick={status === "error" ? shuffle : toggle}
+              disabled={status === "loading"}
+              aria-label={status === "playing" ? "pausar" : "tocar"}
+            >
+              {status === "playing" ? <Icon d="M7 5h3v14H7zM14 5h3v14h-3z" /> : <Icon d="M8 5v14l11-7z" />}
+            </button>
+            <button type="button" className="radio-btn" onClick={shuffle} aria-label="outra música aleatória" title="outra">
+              <Icon d="M16 4l4 4-4 4M4 8h16M8 20l-4-4 4-4M20 16H4" stroke />
+            </button>
+            <button type="button" className="radio-btn" onClick={close} aria-label="fechar rádio" title="fechar">
+              <Icon d="M6 6l12 12M18 6L6 18" stroke />
+            </button>
+          </div>
+        </aside>
+      )}
+    </>
+  );
+}
+
+function Icon({ d, stroke }: { d: string; stroke?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path
+        d={d}
+        fill={stroke ? "none" : "currentColor"}
+        stroke={stroke ? "currentColor" : "none"}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

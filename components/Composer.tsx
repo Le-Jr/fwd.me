@@ -153,7 +153,7 @@ export default function Composer() {
             rows={2}
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="essa aqui é pra ouvir no talo"
+            placeholder="escreve um recado: por que essa tem que tocar agora?"
             maxLength={500}
           />
         </label>
