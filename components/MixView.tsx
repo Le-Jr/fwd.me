@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Cover from "./Cover";
 import { formatDuration, totalDuration } from "@/lib/format";
-import { getPlatform, isPlatformId, PLATFORMS, platformStyle } from "@/lib/platforms";
-import type { Mix, PlatformId } from "@/lib/types";
+import { androidIntent, appUri, detectDevice, inAppBrowser, openDesktopApp, type Device } from "@/lib/open";
+import { getPlatform, isPlatformId, PLATFORMS, platformStyle, type Platform } from "@/lib/platforms";
+import type { Mix, PlatformId, StoredTrack } from "@/lib/types";
 
 const STORAGE_KEY = "fwd.platform";
 
@@ -13,9 +14,13 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [platform, setPlatform] = useState<PlatformId | null>(null);
   const [shareUrl, setShareUrl] = useState(`/m/${mix.id}`);
   const [copied, setCopied] = useState(false);
+  const [device, setDevice] = useState<Device>("desktop");
+  const [embeddedIn, setEmbeddedIn] = useState<string | null>(null);
 
   useEffect(() => {
     setShareUrl(`${window.location.origin}/m/${mix.id}`);
+    setDevice(detectDevice(navigator.userAgent, navigator.maxTouchPoints));
+    setEmbeddedIn(inAppBrowser(navigator.userAgent));
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved && isPlatformId(saved)) setPlatform(saved);
@@ -100,6 +105,13 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
 
           {mix.note && <p className="note">{mix.note}</p>}
 
+          {embeddedIn && (
+            <p className="notice" role="note">
+              Você tá no navegador do <b>{embeddedIn}</b>, que costuma não abrir o app de música. Toca nos{" "}
+              <b>três pontinhos</b> e escolhe <b>abrir no navegador</b> pra música tocar direto no app.
+            </p>
+          )}
+
           <div className="picker">
             <p className="picker-label">
               {current ? (
@@ -137,30 +149,30 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
                   <span className="artist">{t.artist}</span>
                   <span className="alts">
                     {PLATFORMS.filter((p) => p.id !== platform).map((p) => (
-                      <a
+                      <TrackLink
                         key={p.id}
-                        href={`/go/${t.id}/${p.id}`}
-                        target="_blank"
-                        rel="noopener"
-                        style={platformStyle(p)}
+                        track={t}
+                        platform={p}
+                        device={device}
+                        embedded={embeddedIn !== null}
                         title={`Abrir no ${p.name}`}
                       >
                         {p.code}
-                      </a>
+                      </TrackLink>
                     ))}
                   </span>
                 </div>
                 {current ? (
-                  <a
+                  <TrackLink
                     className="open-btn"
-                    href={`/go/${t.id}/${current.id}`}
-                    target="_blank"
-                    rel="noopener"
-                    style={platformStyle(current)}
+                    track={t}
+                    platform={current}
+                    device={device}
+                    embedded={embeddedIn !== null}
                     aria-label={`Abrir ${t.title} no ${current.name}`}
                   >
                     ▶ <span>abrir</span>
-                  </a>
+                  </TrackLink>
                 ) : (
                   <span className="open-btn open-btn-idle">
                     ↑ <span>escolhe</span>
@@ -183,5 +195,54 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
         <Link href="/">+ fazer o seu FWD</Link>
       </p>
     </>
+  );
+}
+
+interface TrackLinkProps {
+  track: StoredTrack;
+  platform: Platform;
+  device: Device;
+  /** inside an app's embedded browser, where intent:// may not be handled */
+  embedded: boolean;
+  className?: string;
+  title?: string;
+  "aria-label"?: string;
+  children: React.ReactNode;
+}
+
+/**
+ * Link to a track that prefers the installed streaming app. Known links point
+ * straight at the platform (so iOS Universal Links fire on tap); unknown ones go
+ * through /go, which looks the track up on first click.
+ */
+function TrackLink({ track, platform, device, embedded, children, ...rest }: TrackLinkProps) {
+  const web = track.links[platform.id];
+  const fallback = `/go/${track.id}/${platform.id}`;
+
+  let href = web ?? fallback;
+  if (web && device === "android" && !embedded) href = androidIntent(platform.id, web) ?? web;
+
+  const uri = web && device === "desktop" ? appUri(platform.id, web) : null;
+
+  return (
+    <a
+      {...rest}
+      href={href}
+      // mobile stays in the same tab: a new tab gets in the way of handing off to the app
+      target={device === "desktop" ? "_blank" : undefined}
+      rel="noopener"
+      style={platformStyle(platform)}
+      onClick={
+        uri && web
+          ? (e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              openDesktopApp(uri, web);
+            }
+          : undefined
+      }
+    >
+      {children}
+    </a>
   );
 }

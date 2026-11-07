@@ -183,6 +183,7 @@ textarea {
   font-size: clamp(2.3rem, 7vw, 4.4rem);
   line-height: 1.08;
   letter-spacing: -0.035em;
+  text-wrap: balance;
   font-weight: 700;
 }
 
@@ -720,6 +721,19 @@ textarea {
   white-space: pre-wrap;
 }
 
+.notice {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--lime);
+  border-radius: var(--radius);
+  background: rgba(198, 255, 61, 0.06);
+  font-size: 0.95rem;
+}
+
+.notice b {
+  color: var(--lime);
+}
+
 .picker {
   margin-block: 24px 12px;
 }
@@ -924,6 +938,26 @@ textarea {
 
   .open-btn span {
     display: none;
+  }
+
+  /* finger-sized targets */
+  .open-btn {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  .alts {
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .alts a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
   }
 
   .field-label {
