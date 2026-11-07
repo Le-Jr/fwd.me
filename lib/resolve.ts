@@ -152,7 +152,7 @@ async function spotifyMeta(url: string) {
 }
 
 /** "Artist - Song (Official Video)" by "Artist - Topic" → { artist, title } */
-function parseYoutubeTitle(rawTitle: string, author: string) {
+export function parseYoutubeTitle(rawTitle: string, author: string) {
   let artist = author.replace(/\s*-\s*Topic$/i, "").replace(/VEVO$/i, "").trim();
   let title = rawTitle
     .replace(/\s*[([][^)\]]*(official|oficial|video|vídeo|clipe|audio|áudio|lyric|letra|visualizer|hd|4k|remaster)[^)\]]*[)\]]/gi, "")
