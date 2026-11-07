@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { resolveMixLinks } from "@/lib/mixLinks";
 import { MAX_TRACKS } from "@/lib/resolve";
 import { createMix } from "@/lib/store";
 import type { Track } from "@/lib/types";
@@ -23,5 +25,7 @@ export async function POST(req: Request) {
     note: cleanString(body.note, 500),
     tracks,
   });
+  // look every link up now, so friends never wait on the first click
+  after(() => resolveMixLinks(id).catch(() => null));
   return Response.json({ id }, { status: 201 });
 }

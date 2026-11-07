@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Cover from "./Cover";
+import PlayAll, { type Playlist } from "./PlayAll";
+import { TrackLink } from "./StreamLink";
 import { formatDuration, totalDuration } from "@/lib/format";
-import { androidIntent, appUri, detectDevice, inAppBrowser, openDesktopApp, type Device } from "@/lib/open";
-import { getPlatform, isPlatformId, PLATFORMS, platformStyle, type Platform } from "@/lib/platforms";
-import type { Mix, PlatformId, StoredTrack } from "@/lib/types";
+import { detectDevice, inAppBrowser, type Device } from "@/lib/open";
+import { getPlatform, isPlatformId, PLATFORMS, platformStyle } from "@/lib/platforms";
+import type { Links, Mix, PlatformId, StoredTrack } from "@/lib/types";
 
 const STORAGE_KEY = "fwd.platform";
+const queueKey = (id: string) => `fwd.queue.${id}`;
 
 export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [platform, setPlatform] = useState<PlatformId | null>(null);
@@ -16,6 +19,49 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [copied, setCopied] = useState(false);
   const [device, setDevice] = useState<Device>("desktop");
   const [embeddedIn, setEmbeddedIn] = useState<string | null>(null);
+  const [tracks, setTracks] = useState<StoredTrack[]>(mix.tracks);
+  const [playlist, setPlaylist] = useState<Playlist | null>(null);
+  const [linksLoading, setLinksLoading] = useState(true);
+  const [queuePos, setQueuePosState] = useState<number | null>(null);
+
+  // look every link up before anyone taps, and build the "play all" playlist
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/mixes/${mix.id}/links`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { tracks: { id: string; links: Links }[]; playlist: Playlist | null } | null) => {
+        if (!alive || !data) return;
+        const byId = new Map(data.tracks.map((t) => [t.id, t.links]));
+        setTracks((prev) => prev.map((t) => ({ ...t, links: { ...t.links, ...byId.get(t.id) } })));
+        setPlaylist(data.playlist);
+      })
+      .catch(() => {
+        // the per-track /go lookup still works
+      })
+      .finally(() => alive && setLinksLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [mix.id]);
+
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(queueKey(mix.id)));
+      if (saved > 0) setQueuePosState(saved);
+    } catch {
+      // storage blocked: the queue lasts this visit
+    }
+  }, [mix.id]);
+
+  function setQueuePos(pos: number | null) {
+    setQueuePosState(pos);
+    try {
+      if (pos === null) localStorage.removeItem(queueKey(mix.id));
+      else localStorage.setItem(queueKey(mix.id), String(pos));
+    } catch {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     setShareUrl(`${window.location.origin}/m/${mix.id}`);
@@ -61,7 +107,8 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   }
 
   const current = platform ? getPlatform(platform)! : null;
-  const total = totalDuration(mix.tracks);
+  const total = totalDuration(tracks);
+  const queueOn = queuePos !== null && current !== null && current.id !== "youtube" && current.id !== "ytmusic";
 
   return (
     <>
@@ -139,9 +186,25 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
             </div>
           </div>
 
+          {current && (
+            <PlayAll
+              platform={current}
+              tracks={tracks}
+              playlist={playlist}
+              loading={linksLoading}
+              device={device}
+              embedded={embeddedIn !== null}
+              pos={queuePos}
+              setPos={setQueuePos}
+            />
+          )}
+
           <ol className="tracklist">
-            {mix.tracks.map((t, i) => (
-              <li key={t.id} className="track">
+            {tracks.map((t, i) => (
+              <li
+                key={t.id}
+                className={`track${queueOn && i < queuePos! ? " track-played" : ""}${queueOn && i === queuePos ? " track-next" : ""}`}
+              >
                 <span className="idx">{String(i + 1).padStart(2, "0")}</span>
                 <Cover src={t.cover} />
                 <div className="meta">
@@ -166,6 +229,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
                   <TrackLink
                     className="open-btn"
                     track={t}
+                    onOpen={queueOn ? () => setQueuePos(i + 1) : undefined}
                     platform={current}
                     device={device}
                     embedded={embeddedIn !== null}
@@ -198,51 +262,3 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   );
 }
 
-interface TrackLinkProps {
-  track: StoredTrack;
-  platform: Platform;
-  device: Device;
-  /** inside an app's embedded browser, where intent:// may not be handled */
-  embedded: boolean;
-  className?: string;
-  title?: string;
-  "aria-label"?: string;
-  children: React.ReactNode;
-}
-
-/**
- * Link to a track that prefers the installed streaming app. Known links point
- * straight at the platform (so iOS Universal Links fire on tap); unknown ones go
- * through /go, which looks the track up on first click.
- */
-function TrackLink({ track, platform, device, embedded, children, ...rest }: TrackLinkProps) {
-  const web = track.links[platform.id];
-  const fallback = `/go/${track.id}/${platform.id}`;
-
-  let href = web ?? fallback;
-  if (web && device === "android" && !embedded) href = androidIntent(platform.id, web) ?? web;
-
-  const uri = web && device === "desktop" ? appUri(platform.id, web) : null;
-
-  return (
-    <a
-      {...rest}
-      href={href}
-      // mobile stays in the same tab: a new tab gets in the way of handing off to the app
-      target={device === "desktop" ? "_blank" : undefined}
-      rel="noopener"
-      style={platformStyle(platform)}
-      onClick={
-        uri && web
-          ? (e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
-              e.preventDefault();
-              openDesktopApp(uri, web);
-            }
-          : undefined
-      }
-    >
-      {children}
-    </a>
-  );
-}

@@ -258,6 +258,41 @@ async function spotifyByIsrc(isrc: string): Promise<string | undefined> {
 }
 
 // ---------------------------------------------------------------------------
+// YouTube: no key. Reads the first video of the public search page so every
+// track gets a video id (used for direct links and the "play all" playlist).
+// ---------------------------------------------------------------------------
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+export function youtubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
+    return u.searchParams.get("v");
+  } catch {
+    return null;
+  }
+}
+
+/** Video id of the top search result, cached (misses for a day, hits for a month). */
+async function youtubeSearch(artist: string, title: string): Promise<string | null> {
+  const query = `${artist} ${title}`;
+  const cacheKey = `yt:${normalize(query)}`;
+  const cached = cacheGet<{ id: string | null }>(cacheKey, 30 * DAY);
+  if (cached && (cached.id || cacheGet(cacheKey, DAY))) return cached.id;
+
+  const res = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, {
+    headers: { "user-agent": BROWSER_UA, "accept-language": "en" },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const id = (await res.text()).match(/"videoRenderer":\{"videoId":"([\w-]{11})"/)?.[1] ?? null;
+  cacheSet(cacheKey, { id });
+  return id;
+}
+
+// ---------------------------------------------------------------------------
 // Input parsing
 // ---------------------------------------------------------------------------
 
@@ -388,6 +423,14 @@ export async function lookupLinks(track: Track): Promise<Links> {
 
   if (!links.spotify && !track.links.spotify && track.isrc) {
     links.spotify = await spotifyByIsrc(track.isrc);
+  }
+
+  // one video id serves both YouTube and YouTube Music
+  const known = links.youtube ?? track.links.youtube ?? links.ytmusic ?? track.links.ytmusic;
+  const videoId = known ? youtubeId(known) : await youtubeSearch(track.artist, track.title).catch(() => null);
+  if (videoId) {
+    if (!links.youtube && !track.links.youtube) links.youtube = `https://www.youtube.com/watch?v=${videoId}`;
+    if (!links.ytmusic && !track.links.ytmusic) links.ytmusic = `https://music.youtube.com/watch?v=${videoId}`;
   }
 
   for (const key of Object.keys(links) as PlatformId[]) {

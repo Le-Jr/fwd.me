@@ -915,6 +915,58 @@ textarea {
   }
 }
 
+/* ---------- play all ---------- */
+
+.playall {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--c);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.playall-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.playall-btn {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.playall-hint {
+  flex: 1 1 180px;
+  min-width: 0;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.playall-hint b {
+  color: var(--text);
+}
+
+.playall-extra {
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.track-played {
+  opacity: 0.5;
+}
+
+.track-next {
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 3px 0 0 var(--lime);
+}
+
 /* ---------- floating radio ---------- */
 
 html.has-radio body {
