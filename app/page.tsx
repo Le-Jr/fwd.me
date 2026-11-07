@@ -7,7 +7,7 @@ export default function Home() {
       <section className="hero">
         <p className="kicker">&gt; FW: FW: FW: ouve essa</p>
         <h1>
-          Manda música pra quem usa <mark>outro streaming</mark>.
+          Um link que toca em <mark>qualquer streaming</mark>.
         </h1>
         <p className="lede">
           Cola links do <strong>Spotify</strong>, <strong>YouTube</strong>, <strong>Deezer</strong> ou{" "}
