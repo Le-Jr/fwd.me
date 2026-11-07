@@ -60,24 +60,25 @@ Salva um FWD.
 
 ```json
 {
-  "title": "daft punk pra viagem",
-  "author": "Leandro",
-  "note": "ouve no talo",
+  "secret": "v1.<iv>.<ciphertext>",
   "tracks": [Track, ...]
 }
 ```
 
-- `title`: até 120 caracteres, padrão `"ouve isso"`
-- `author`: até 60 · `note`: até 500
-- `tracks`: até 500. Faixas sem título ou sem nenhum link confiável são descartadas.
+- `secret`: assunto, remetente e mensagem **já criptografados no navegador** (`encryptSecret` em `lib/crypto.ts`, AES-256-GCM). O servidor nunca recebe esses campos em texto: `title`/`author`/`note` em texto puro são ignorados, e sem um `secret` válido a resposta é **400**.
+- `tracks`: até 500. Faixas sem título ou sem nenhum link confiável são descartadas. Ficam em texto puro, porque o servidor precisa delas para buscar os links.
 
-**201** `{ "id": "yAmoCoy" }` · **400** formato inválido ou nenhuma faixa válida.
+**201** `{ "id": "yAmoCoy" }` · **400** formato inválido, `secret` ausente ou nenhuma faixa válida.
+
+O link de compartilhar é `/m/<id>#k=<chave>`. A chave (32 bytes, base64url) fica só no fragmento `#`, que o navegador não envia ao servidor.
 
 ---
 
 ## `GET /m/:id`
 
 Página HTML do FWD. `?novo=1` mostra o banner "link pronto". **404** se não existir.
+
+O HTML vem com o `secret` cifrado; o navegador lê a chave do `#k=…` e descriptografa assunto, remetente e mensagem. Sem a chave (ou com a chave errada) a página mostra as faixas e um aviso de "mensagem trancada". Prévia de link (Open Graph) mostra só a contagem de faixas.
 
 ## `GET /go/:trackId/:platform`
 

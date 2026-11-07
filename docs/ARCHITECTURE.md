@@ -62,7 +62,7 @@ Se uma API externa responder com rate limit, `lookupLinks` lança `RateLimited` 
 ## Banco (libSQL: `data/fwd.db` em dev, Turso em produção)
 
 ```sql
-mixes  (id TEXT PK, title, note, author, created_at)
+mixes  (id TEXT PK, title, note, author, created_at, secret)
 tracks (id TEXT PK, mix_id → mixes, position, title, artist, album,
         cover, isrc, duration, links JSON, resolved_at)
 cache  (key PK, value JSON, created_at)   -- respostas song.link, token Spotify
@@ -70,10 +70,16 @@ cache  (key PK, value JSON, created_at)   -- respostas song.link, token Spotify
 
 - IDs curtos aleatórios (`crypto.randomBytes`), alfabeto sem caracteres ambíguos (`0 O 1 l I`): 7 caracteres pro FWD, 10 pra faixa.
 - `links` é um JSON `{ spotify?, ytmusic?, youtube?, deezer?, amazon? }`.
+- `mixes.secret` guarda o envelope cifrado; em FWDs cifrados, `title` fica `''` e `note`/`author` ficam NULL. Colunas novas entram por migração aditiva em `lib/db.ts` (`ALTER TABLE … ADD COLUMN`).
 - Um cliente libSQL por processo (`lib/db.ts`), reaproveitado no hot reload e entre invocações quentes via `globalThis`. O schema é criado com `CREATE TABLE IF NOT EXISTS` na primeira consulta.
 - `store.ts` é todo assíncrono; criar um mix grava o mix e as faixas num único `batch` atômico.
 
 ## Segurança
+
+- **Criptografia de ponta a ponta** (`lib/crypto.ts`): assunto, remetente e mensagem são criptografados no navegador com AES-256-GCM e uma chave aleatória de 256 bits por FWD. Só o envelope cifrado (`mixes.secret`, `v1.<iv>.<dados>`) vai pro servidor; a chave vive no fragmento do link (`/m/<id>#k=…`), que nunca é enviado em requisições. Banco, logs e servidor não conseguem ler esses campos. Faixas ficam em texto puro (o servidor precisa delas pra buscar links).
+  - Perdeu o link completo, perdeu a mensagem: não há recuperação.
+  - FWDs criados antes da criptografia (`secret` NULL) continuam em texto puro nas colunas antigas.
+  - A prévia de link (Open Graph) só mostra a contagem de faixas, e páginas cifradas saem com `noindex`.
 
 - **Open redirect**: `/go` redireciona pra URLs gravadas no banco. Por isso, todo link (vindo do browser ou de API) passa por `isTrustedLink()`, que exige `https` e o host oficial do serviço (`lib/platforms.ts`).
 - **Entrada do browser**: `lib/validate.ts` reconstrói cada faixa campo a campo, com limites de tamanho, ISRC validado por regex e capa só `https`.

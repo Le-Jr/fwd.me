@@ -16,6 +16,7 @@ interface MixRow {
   note: string | null;
   author: string | null;
   created_at: number;
+  secret: string | null;
 }
 
 interface TrackRow {
@@ -46,12 +47,8 @@ function toTrack(row: TrackRow): StoredTrack {
   };
 }
 
-export async function createMix(input: {
-  title: string;
-  note?: string;
-  author?: string;
-  tracks: Track[];
-}): Promise<string> {
+/** `secret` is the encrypted subject/note/sender envelope; the server never sees them in plaintext. */
+export async function createMix(input: { secret: string; tracks: Track[] }): Promise<string> {
   const db = await getDb();
   const id = shortId(7);
 
@@ -59,8 +56,8 @@ export async function createMix(input: {
   await db.batch(
     [
       {
-        sql: "INSERT INTO mixes (id, title, note, author, created_at) VALUES (?, ?, ?, ?, ?)",
-        args: [id, input.title, input.note || null, input.author || null, Date.now()],
+        sql: "INSERT INTO mixes (id, title, note, author, created_at, secret) VALUES (?, '', NULL, NULL, ?, ?)",
+        args: [id, Date.now(), input.secret],
       },
       ...input.tracks.map((t, i) => ({
         sql: `INSERT INTO tracks (id, mix_id, position, title, artist, album, cover, isrc, duration, links)
@@ -97,6 +94,7 @@ export async function getMix(id: string): Promise<Mix | null> {
   if (!mix) return null;
   return {
     id: mix.id,
+    secret: mix.secret ?? null,
     title: mix.title,
     note: mix.note,
     author: mix.author,

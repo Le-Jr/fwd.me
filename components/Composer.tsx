@@ -1,5 +1,6 @@
 "use client";
 
+import { encryptSecret, generateKey } from "@/lib/crypto";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Cover from "./Cover";
@@ -101,14 +102,17 @@ export default function Composer() {
     setBusy("save");
     setErrors([]);
     try {
+      // subject, sender and note are encrypted here; the key only ever lives in the link's #fragment
+      const key = generateKey();
+      const secret = await encryptSecret(key, { title: title.trim() || "ouve isso", author: author.trim(), note: note.trim() });
       const res = await fetch("/api/mixes", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, author, note, tracks: tracks.map(({ key: _key, ...t }) => t) }),
+        body: JSON.stringify({ secret, tracks: tracks.map(({ key: _key, ...t }) => t) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "não deu pra salvar");
-      router.push(`/m/${data.id}?novo=1`);
+      router.push(`/m/${data.id}?novo=1#k=${key}`);
     } catch (err) {
       setErrors([err instanceof Error ? err.message : "não deu pra salvar"]);
       setBusy(null);

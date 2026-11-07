@@ -21,6 +21,13 @@ export interface StoredTrack extends Track {
 
 export interface Mix {
   id: string;
+  /**
+   * Subject, note and sender, AES-GCM encrypted in the browser (lib/crypto.ts).
+   * The key lives only in the share link's #fragment. Null on legacy mixes,
+   * created before encryption, which keep those fields in plaintext below.
+   */
+  secret: string | null;
+  /** legacy plaintext fields: empty / null on encrypted mixes */
   title: string;
   note: string | null;
   author: string | null;
