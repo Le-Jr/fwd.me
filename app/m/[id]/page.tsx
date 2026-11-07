@@ -13,13 +13,25 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const mix = await getMix((await params).id);
   if (!mix) return { title: "fwd.fm" };
-  const description = `${mix.tracks.length} ${mix.tracks.length === 1 ? "faixa" : "faixas"}${
-    mix.author ? ` de ${mix.author}` : ""
-  }. Abre no seu streaming favorito.`;
+  const count = `${mix.tracks.length} ${mix.tracks.length === 1 ? "faixa" : "faixas"}`;
+  const images = mix.tracks[0]?.cover ? [mix.tracks[0].cover] : [];
+
+  // Encrypted mixes: the server cannot read subject or sender, so the preview only shows the count.
+  if (mix.secret) {
+    const description = `${count} pra você. Abre no seu streaming favorito.`;
+    return {
+      title: `FWD: ${count} · fwd.fm`,
+      description,
+      robots: { index: false },
+      openGraph: { title: `FWD: ${count}`, description, images },
+    };
+  }
+
+  const description = `${count}${mix.author ? ` de ${mix.author}` : ""}. Abre no seu streaming favorito.`;
   return {
     title: `FWD: ${mix.title} · fwd.fm`,
     description,
-    openGraph: { title: `FWD: ${mix.title}`, description, images: mix.tracks[0]?.cover ? [mix.tracks[0].cover] : [] },
+    openGraph: { title: `FWD: ${mix.title}`, description, images },
   };
 }
 

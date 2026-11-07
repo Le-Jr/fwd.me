@@ -730,6 +730,12 @@ textarea {
   font-size: 0.95rem;
 }
 
+.locked,
+.mix-title .locked {
+  color: var(--muted);
+  font-family: inherit;
+}
+
 .notice b {
   color: var(--lime);
 }

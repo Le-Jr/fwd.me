@@ -5,6 +5,7 @@ import Link from "next/link";
 import Cover from "./Cover";
 import PlayAll, { type Playlist } from "./PlayAll";
 import { TrackLink } from "./StreamLink";
+import { decryptSecret, keyFromHash, type MixSecret } from "@/lib/crypto";
 import { formatDuration, totalDuration } from "@/lib/format";
 import { detectDevice, inAppBrowser, type Device } from "@/lib/open";
 import { getPlatform, isPlatformId, PLATFORMS, platformStyle } from "@/lib/platforms";
@@ -12,6 +13,17 @@ import type { Links, Mix, PlatformId, StoredTrack } from "@/lib/types";
 
 const STORAGE_KEY = "fwd.platform";
 const queueKey = (id: string) => `fwd.queue.${id}`;
+
+/** Subject/sender/note as shown: decrypted from the link key, or legacy plaintext. */
+type Letter =
+  | { state: "open"; secret: MixSecret }
+  | { state: "decrypting" }
+  | { state: "no-key" }
+  | { state: "bad-key" };
+
+function legacyLetter(mix: Mix): Letter {
+  return { state: "open", secret: { title: mix.title, author: mix.author ?? "", note: mix.note ?? "" } };
+}
 
 export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [platform, setPlatform] = useState<PlatformId | null>(null);
@@ -23,6 +35,44 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [linksLoading, setLinksLoading] = useState(true);
   const [queuePos, setQueuePosState] = useState<number | null>(null);
+  const [letter, setLetter] = useState<Letter>(() => (mix.secret ? { state: "decrypting" } : legacyLetter(mix)));
+  const [linkKey, setLinkKey] = useState<string | null>(null);
+
+  // the key sits in the #fragment, which never reaches the server: decrypt here
+  useEffect(() => {
+    if (!mix.secret) return;
+    const envelope = mix.secret;
+    let alive = true;
+    function unlock() {
+      const key = keyFromHash(window.location.hash);
+      setLinkKey(key);
+      if (!key) {
+        setLetter({ state: "no-key" });
+        return;
+      }
+      setLetter({ state: "decrypting" });
+      decryptSecret(key, envelope)
+        .then((secret) => alive && setLetter({ state: "open", secret }))
+        .catch(() => alive && setLetter({ state: "bad-key" }));
+    }
+    unlock();
+    // someone may paste the full link over a key-less one in the same tab
+    window.addEventListener("hashchange", unlock);
+    return () => {
+      alive = false;
+      window.removeEventListener("hashchange", unlock);
+    };
+  }, [mix.secret]);
+
+  // the server-side <title> can only say "N faixas"; show the real subject once decrypted
+  useEffect(() => {
+    if (letter.state !== "open" || !mix.secret) return;
+    const title = `FWD: ${letter.secret.title} · fwd.fm`;
+    document.title = title;
+    // Next applies route metadata right after navigation; set it again once that settles
+    const t = window.setTimeout(() => (document.title = title), 300);
+    return () => window.clearTimeout(t);
+  }, [letter, mix.secret]);
 
   // look every link up before anyone taps, and build the "play all" playlist
   useEffect(() => {
@@ -86,18 +136,18 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(fullShareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      window.prompt("copia o link:", shareUrl);
+      window.prompt("copia o link:", fullShareUrl);
     }
   }
 
   async function share() {
     if (navigator.share) {
       try {
-        await navigator.share({ title: `FWD: ${mix.title}`, url: shareUrl });
+        await navigator.share({ title: `FWD: ${open?.title ?? "ouve isso"}`, url: fullShareUrl });
         return;
       } catch {
         // cancelled: fall through to copy
@@ -106,6 +156,10 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
     copy();
   }
 
+  const open = letter.state === "open" ? letter.secret : null;
+  // the share link must carry the key, or friends get a locked letter
+  const fullShareUrl = linkKey ? `${shareUrl}#k=${linkKey}` : shareUrl;
+  const locked = letter.state === "no-key" || letter.state === "bad-key";
   const current = platform ? getPlatform(platform)! : null;
   const total = totalDuration(tracks);
   const queueOn = queuePos !== null && current !== null && current.id !== "youtube" && current.id !== "ytmusic";
@@ -129,13 +183,14 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
           )}
 
           <h1 id="mix-title" className="mix-title">
-            <span>FWD:</span> {mix.title}
+            <span>FWD:</span>{" "}
+            {open ? open.title : locked ? <span className="locked">🔒 mensagem trancada</span> : <span className="locked">…</span>}
           </h1>
 
           <dl className="headers" style={{ marginTop: 14 }}>
             <div>
               <dt>De:</dt>
-              <dd>{mix.author || "alguém com bom gosto"}</dd>
+              <dd>{open ? open.author || "alguém com bom gosto" : locked ? "🔒" : "…"}</dd>
             </div>
             <div>
               <dt>Para:</dt>
@@ -150,7 +205,22 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
             </div>
           </dl>
 
-          {mix.note && <p className="note">{mix.note}</p>}
+          {open?.note && <p className="note">{open.note}</p>}
+
+          {locked && (
+            <p className="notice" role="note">
+              {letter.state === "no-key" ? (
+                <>
+                  Esse link chegou <b>sem a chave</b> (a parte depois do <b>#</b>). As músicas abrem normal, mas o
+                  assunto, o remetente e a mensagem só aparecem com o link completo.
+                </>
+              ) : (
+                <>
+                  A chave desse link <b>não confere</b>. Pede pra quem mandou copiar o link de novo, inteiro.
+                </>
+              )}
+            </p>
+          )}
 
           {embeddedIn && (
             <p className="notice" role="note">
@@ -247,7 +317,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
           </ol>
 
           <div className="share-row">
-            <code>{shareUrl}</code>
+            <code>{fullShareUrl}</code>
             <button type="button" className="btn btn-primary" onClick={share}>
               {copied ? "copiado!" : "encaminhar ↗"}
             </button>
