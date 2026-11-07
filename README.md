@@ -27,7 +27,7 @@ Sem login, sem conta, sem instalar nada.
 
 ## Rodando localmente
 
-Requisitos: **Node.js 22.13+** (usa o `node:sqlite` nativo; desenvolvido no Node 24).
+Requisitos: **Node.js 20+** (desenvolvido no Node 24).
 
 ```bash
 npm install
@@ -41,14 +41,30 @@ npm run build
 npm start
 ```
 
-O banco SQLite é criado sozinho em `data/fwd.db` (ignorado pelo git).
+Em dev, o banco SQLite é criado sozinho em `data/fwd.db` (ignorado pelo git). Em produção ele fica no [Turso](https://turso.tech) (libSQL): mesmo SQL, só muda a URL.
 
-### Variáveis de ambiente (todas opcionais)
+### Deploy (Vercel + Turso)
+
+1. Crie o banco no Turso e gere um token:
+   ```bash
+   turso db create fwd
+   turso db show --url fwd        # → TURSO_DATABASE_URL
+   turso db tokens create fwd     # → TURSO_AUTH_TOKEN
+   ```
+2. Importe o repositório na Vercel (framework Next.js, sem configuração extra).
+3. Em *Settings → Environment Variables*, adicione `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` (e, se quiser, as chaves opcionais abaixo).
+4. Deploy. As tabelas são criadas sozinhas na primeira requisição. Cada push na `main` faz deploy de novo.
+
+Sem `TURSO_DATABASE_URL` na Vercel o app falha de propósito, pra não gravar mixes num disco que some.
+
+### Variáveis de ambiente
 
 Copie `.env.example` para `.env.local`:
 
 | Variável                | Pra quê                                                          |
 | ----------------------- | ---------------------------------------------------------------- |
+| `TURSO_DATABASE_URL`    | Banco em produção (obrigatória na Vercel; em dev usa `data/fwd.db`) |
+| `TURSO_AUTH_TOKEN`      | Token do banco Turso                                             |
 | `SPOTIFY_CLIENT_ID`     | Links diretos do Spotify via busca por ISRC (Client Credentials) |
 | `SPOTIFY_CLIENT_SECRET` | idem                                                             |
 | `ODESLI_API_KEY`        | Links diretos pra todos os serviços via song.link                |
@@ -57,7 +73,7 @@ Copie `.env.example` para `.env.local`:
 ## Stack
 
 - **Next.js 16** (App Router) + **React 19** + **TypeScript**
-- **SQLite** via `node:sqlite`, sem dependência nativa
+- **libSQL** (`@libsql/client`): arquivo SQLite em dev, Turso em produção
 - CSS puro com design tokens, sem framework de UI
 - Fontes: Space Grotesk, JetBrains Mono, VT323 (via `next/font`)
 - Dados musicais: **Deezer API** (aberta), **oEmbed do YouTube**, **meta tags públicas do Spotify**
@@ -77,7 +93,7 @@ components/                     Composer, MixView, Cover, Eq, Ticker
 lib/
   resolve.ts                    leitura de links + match no Deezer
   platforms.ts                  definição dos 5 streamings
-  store.ts / db.ts              SQLite
+  store.ts / db.ts              libSQL (SQLite local / Turso)
   validate.ts                   sanitização do que vem do browser
 docs/                           arquitetura, API, roadmap
 STYLE_GUIDE.md                  identidade visual e voz

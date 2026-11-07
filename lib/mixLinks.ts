@@ -29,7 +29,7 @@ export function resolveMixLinks(mixId: string): Promise<StoredTrack[] | null> {
 }
 
 async function doResolve(mixId: string): Promise<StoredTrack[] | null> {
-  const mix = getMix(mixId);
+  const mix = await getMix(mixId);
   if (!mix) return null;
 
   const queue = mix.tracks.filter(needsLinks);
@@ -39,7 +39,7 @@ async function doResolve(mixId: string): Promise<StoredTrack[] | null> {
         const found = await lookupLinks(t);
         t.links = { ...found, ...t.links };
         t.resolvedAt = Date.now();
-        saveTrackLinks(t.id, t.links);
+        await saveTrackLinks(t.id, t.links);
       } catch {
         // rate limited or a source hiccup: leave it for the next viewer
       }

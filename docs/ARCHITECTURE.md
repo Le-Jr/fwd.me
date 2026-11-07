@@ -59,7 +59,7 @@ Salvar um FWD **não** resolve todos os serviços na hora. Isso deixaria a cria�
 
 Se uma API externa responder com rate limit, `lookupLinks` lança `RateLimited` e **nada é gravado**, então o próximo clique tenta de novo.
 
-## Banco (SQLite, `data/fwd.db`)
+## Banco (libSQL: `data/fwd.db` em dev, Turso em produção)
 
 ```sql
 mixes  (id TEXT PK, title, note, author, created_at)
@@ -70,7 +70,8 @@ cache  (key PK, value JSON, created_at)   -- respostas song.link, token Spotify
 
 - IDs curtos aleatórios (`crypto.randomBytes`), alfabeto sem caracteres ambíguos (`0 O 1 l I`): 7 caracteres pro FWD, 10 pra faixa.
 - `links` é um JSON `{ spotify?, ytmusic?, youtube?, deezer?, amazon? }`.
-- Uma conexão por processo, reaproveitada no hot reload via `globalThis`.
+- Um cliente libSQL por processo (`lib/db.ts`), reaproveitado no hot reload e entre invocações quentes via `globalThis`. O schema é criado com `CREATE TABLE IF NOT EXISTS` na primeira consulta.
+- `store.ts` é todo assíncrono; criar um mix grava o mix e as faixas num único `batch` atômico.
 
 ## Segurança
 
@@ -81,4 +82,9 @@ cache  (key PK, value JSON, created_at)   -- respostas song.link, token Spotify
 
 ## Deploy
 
-O SQLite em arquivo exige um servidor com disco persistente (VPS, Fly.io, Railway, Render com volume). **Na Vercel o disco é efêmero**: pra deployar lá, troque `lib/db.ts`/`lib/store.ts` por Turso (libSQL), Supabase ou Postgres. A interface de `store.ts` é pequena de propósito pra essa troca ser simples.
+Produção na **Vercel + Turso** (passo a passo no README).
+
+- `TURSO_DATABASE_URL` definida → o cliente fala com o Turso. Sem ela, usa o arquivo `data/fwd.db`; na Vercel (`VERCEL=1`) isso é recusado, porque o disco lá é efêmero.
+- Ao criar um mix, `after()` busca os links de todas as faixas depois de responder. `/api/mixes` e `/api/mixes/[id]/links` têm `maxDuration = 60`.
+- `resolveMixLinks` evita trabalho duplicado só dentro de uma instância; em instâncias diferentes, o pior caso é buscar a mesma faixa duas vezes.
+- Busca do YouTube e prévias do Deezer saem do IP da Vercel. Se o YouTube bloquear (página de consentimento ou captcha), as faixas ficam sem link do YouTube e caem na busca do serviço; nada quebra.

@@ -5,6 +5,9 @@ import { createMix } from "@/lib/store";
 import type { Track } from "@/lib/types";
 import { cleanString, cleanTrack } from "@/lib/validate";
 
+// the after() hook looks every link up once the response is sent
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || !Array.isArray(body.tracks)) {
@@ -19,7 +22,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "adiciona pelo menos uma faixa" }, { status: 400 });
   }
 
-  const id = createMix({
+  const id = await createMix({
     title: cleanString(body.title, 120) || "ouve isso",
     author: cleanString(body.author, 60),
     note: cleanString(body.note, 500),

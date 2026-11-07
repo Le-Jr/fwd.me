@@ -9,7 +9,7 @@ import { getTrack, saveTrackLinks } from "@/lib/store";
  */
 export async function GET(req: Request, { params }: { params: Promise<{ trackId: string; platform: string }> }) {
   const { trackId, platform } = await params;
-  const track = getTrack(trackId);
+  const track = await getTrack(trackId);
   const target = getPlatform(platform);
   if (!track || !target) return NextResponse.redirect(new URL("/", req.url));
 
@@ -18,7 +18,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ trackId:
     const found = await lookupLinks(track).catch(() => null);
     if (found) {
       links = { ...found, ...links };
-      saveTrackLinks(track.id, links);
+      await saveTrackLinks(track.id, links);
     }
   }
 

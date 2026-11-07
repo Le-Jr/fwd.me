@@ -2,6 +2,8 @@ import { needsLinks, resolveMixLinks, withYoutubePair, youtubePlaylist } from "@
 import { getMix } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
+// a first view of a long mix may look up every track
+export const maxDuration = 60;
 
 /**
  * Everything the share page needs to open the whole mix: every track's links
@@ -9,7 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const mix = getMix(id);
+  const mix = await getMix(id);
   if (!mix) return Response.json({ error: "mix não encontrado" }, { status: 404 });
 
   const tracks = mix.tracks.some(needsLinks) ? ((await resolveMixLinks(id)) ?? mix.tracks) : mix.tracks;

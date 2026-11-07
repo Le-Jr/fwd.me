@@ -203,14 +203,14 @@ async function odesliLinks(url: string): Promise<Links> {
   if (!key) return {};
 
   const cacheKey = `odesli:${url}`;
-  let data = cacheGet<OdesliResponse>(cacheKey, 7 * DAY);
+  let data = await cacheGet<OdesliResponse>(cacheKey, 7 * DAY);
   if (!data) {
     const params = new URLSearchParams({ url, key, userCountry: process.env.ODESLI_COUNTRY ?? "BR" });
     const res = await fetch(`https://api.song.link/v1-alpha.1/links?${params}`, { cache: "no-store" });
     if (res.status === 429) throw new RateLimited();
     if (!res.ok) return {};
     data = (await res.json()) as OdesliResponse;
-    cacheSet(cacheKey, data);
+    await cacheSet(cacheKey, data);
   }
 
   const links: Links = {};
@@ -226,7 +226,7 @@ async function spotifyToken(): Promise<string | null> {
   const secret = process.env.SPOTIFY_CLIENT_SECRET;
   if (!id || !secret) return null;
 
-  const cached = cacheGet<string>("spotify:token", 50 * 60 * 1000);
+  const cached = await cacheGet<string>("spotify:token", 50 * 60 * 1000);
   if (cached) return cached;
 
   const res = await fetch("https://accounts.spotify.com/api/token", {
@@ -240,7 +240,7 @@ async function spotifyToken(): Promise<string | null> {
   });
   if (!res.ok) return null;
   const { access_token } = (await res.json()) as { access_token: string };
-  cacheSet("spotify:token", access_token);
+  await cacheSet("spotify:token", access_token);
   return access_token;
 }
 
@@ -279,8 +279,8 @@ export function youtubeId(url: string): string | null {
 async function youtubeSearch(artist: string, title: string): Promise<string | null> {
   const query = `${artist} ${title}`;
   const cacheKey = `yt:${normalize(query)}`;
-  const cached = cacheGet<{ id: string | null }>(cacheKey, 30 * DAY);
-  if (cached && (cached.id || cacheGet(cacheKey, DAY))) return cached.id;
+  const cached = await cacheGet<{ id: string | null }>(cacheKey, 30 * DAY);
+  if (cached && (cached.id || (await cacheGet(cacheKey, DAY)))) return cached.id;
 
   const res = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, {
     headers: { "user-agent": BROWSER_UA, "accept-language": "en" },
@@ -288,7 +288,7 @@ async function youtubeSearch(artist: string, title: string): Promise<string | nu
   });
   if (!res.ok) return null;
   const id = (await res.text()).match(/"videoRenderer":\{"videoId":"([\w-]{11})"/)?.[1] ?? null;
-  cacheSet(cacheKey, { id });
+  await cacheSet(cacheKey, { id });
   return id;
 }
 

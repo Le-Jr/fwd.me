@@ -18,7 +18,6 @@
 | Playlist do **YouTube** não importa | Exige YouTube Data API (chave + cota) | Integrar com `YOUTUBE_API_KEY` |
 | Link da **Amazon** não é lido | A página não expõe metadados sem JavaScript | Busca pelo nome; investigar API da Amazon |
 | Match às vezes erra versões (ao vivo, remaster) | Match por texto no Deezer | Preferir ISRC quando a origem tiver; mostrar "não é essa?" |
-| SQLite em arquivo | Simplicidade | Turso/Supabase pra deploy serverless |
 
 ## Próximos passos
 
@@ -39,6 +38,7 @@
 
 ### Infra
 
-- [ ] Deploy (Fly.io com volume, ou trocar pra Turso e ir pra Vercel)
+- [x] Banco no Turso (libSQL) pra rodar na Vercel
+- [ ] Primeiro deploy na Vercel
 - [ ] Domínio próprio
 - [ ] Testes de `parseYoutubeTitle`, `cleanTrack` e `isTrustedLink`
