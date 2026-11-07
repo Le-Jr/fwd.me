@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RadioTrack } from "@/lib/radio";
 
 const DISMISS_KEY = "fwd.radio.off";
+const VOLUME_KEY = "fwd.radio.vol";
+/** starts quiet: it greets people who did not ask for music */
+const DEFAULT_VOLUME = 0.1;
 const BARS = 28;
 const COLORS = ["#c6ff3d", "#3df2ff", "#ff3df2"];
 
@@ -17,16 +20,24 @@ type Status = "loading" | "ready" | "playing" | "paused" | "error";
  * read the real audio through an AnalyserNode once the visitor taps play (an
  * AudioContext created without a gesture starts suspended and would mute the
  * element); until then they are drawn from a synthetic signal.
+ *
+ * Volume goes through a GainNode placed after the analyser, so the waves keep
+ * their full size at low volume (and it also works on iOS, where the element's
+ * own volume is read-only). Before the graph exists, the element volume is used.
  */
 export default function RadioPlayer() {
   const [hidden, setHidden] = useState(true);
   const [track, setTrack] = useState<RadioTrack | null>(null);
   const [status, setStatus] = useState<Status>("loading");
+  const [volume, setVolumeState] = useState(DEFAULT_VOLUME);
+  const [showVolume, setShowVolume] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const volumeRef = useRef(DEFAULT_VOLUME);
   const statusRef = useRef<Status>("loading");
   statusRef.current = status;
 
@@ -64,6 +75,13 @@ export default function RadioPlayer() {
       // storage blocked: show the player
     }
     if (off) return;
+    try {
+      const saved = Number(localStorage.getItem(VOLUME_KEY) ?? NaN);
+      if (saved >= 0 && saved <= 1) applyVolume(saved);
+      else applyVolume(DEFAULT_VOLUME);
+    } catch {
+      applyVolume(DEFAULT_VOLUME);
+    }
     setHidden(false);
     load(true);
   }, [load]);
@@ -73,6 +91,23 @@ export default function RadioPlayer() {
     document.documentElement.classList.toggle("has-radio", !hidden);
     return () => document.documentElement.classList.remove("has-radio");
   }, [hidden]);
+
+  function applyVolume(v: number) {
+    volumeRef.current = v;
+    setVolumeState(v);
+    const audio = audioRef.current;
+    if (gainRef.current) gainRef.current.gain.value = v;
+    else if (audio) audio.volume = v;
+  }
+
+  function setVolume(v: number) {
+    applyVolume(v);
+    try {
+      localStorage.setItem(VOLUME_KEY, String(v));
+    } catch {
+      // ignore
+    }
+  }
 
   /** Wire the analyser; must run inside a user gesture. */
   function connectAnalyser() {
@@ -86,10 +121,15 @@ export default function RadioPlayer() {
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 128;
       analyser.smoothingTimeConstant = 0.78;
+      const gain = ctx.createGain();
+      gain.gain.value = volumeRef.current;
       ctx.createMediaElementSource(audio).connect(analyser);
-      analyser.connect(ctx.destination);
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
+      audio.volume = 1; // the gain node owns the volume from here on
       ctxRef.current = ctx;
       analyserRef.current = analyser;
+      gainRef.current = gain;
     } catch {
       // Web Audio unavailable: synthetic waves still run
     }
@@ -217,6 +257,25 @@ export default function RadioPlayer() {
             >
               {status === "playing" ? <Icon d="M7 5h3v14H7zM14 5h3v14h-3z" /> : <Icon d="M8 5v14l11-7z" />}
             </button>
+            <button
+              type="button"
+              className="radio-btn"
+              onClick={() => setShowVolume((v) => !v)}
+              aria-label="volume"
+              aria-expanded={showVolume}
+              title={`volume ${Math.round(volume * 100)}%`}
+            >
+              <Icon
+                d={
+                  volume === 0
+                    ? "M4 9v6h4l5 4V5L8 9H4zM17 9l4 6M21 9l-4 6"
+                    : volume < 0.5
+                      ? "M4 9v6h4l5 4V5L8 9H4zM16.5 9.5a3.5 3.5 0 0 1 0 5"
+                      : "M4 9v6h4l5 4V5L8 9H4zM16.5 9.5a3.5 3.5 0 0 1 0 5M19 7a7 7 0 0 1 0 10"
+                }
+                stroke
+              />
+            </button>
             <button type="button" className="radio-btn" onClick={shuffle} aria-label="outra música aleatória" title="outra">
               <Icon d="M16 4l4 4-4 4M4 8h16M8 20l-4-4 4-4M20 16H4" stroke />
             </button>
@@ -224,6 +283,22 @@ export default function RadioPlayer() {
               <Icon d="M6 6l12 12M18 6L6 18" stroke />
             </button>
           </div>
+
+          {showVolume && (
+            <label className="radio-vol">
+              <span className="sr-only">volume</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round(volume * 100)}
+                onChange={(e) => setVolume(Number(e.target.value) / 100)}
+                style={{ "--v": `${Math.round(volume * 100)}%` } as React.CSSProperties}
+              />
+              <span className="radio-vol-num">{Math.round(volume * 100)}%</span>
+            </label>
+          )}
         </aside>
       )}
     </>
