@@ -51,7 +51,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
 
   deploy:
-    name: Deploy to Vercel (${{ github.ref_name == 'main' && 'production' || 'preview' }})
+    name: Deploy to Vercel
     needs: ci
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
