@@ -3,6 +3,7 @@ import { cacheGet, cacheSet } from "./store";
 import type { Links, PlatformId, Track } from "./types";
 
 const DAY = 86_400_000;
+const UA = "Mozilla/5.0 (compatible; fwd.fm/0.1; +https://fwd.fm)";
 export const MAX_TRACKS = 500;
 
 export class ResolveError extends Error {}
@@ -15,87 +16,16 @@ export class RateLimited extends ResolveError {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// ---------------------------------------------------------------------------
-// Odesli (song.link): turns one streaming link into links for every platform.
-// Without an API key it allows ~10 requests/minute, so results are cached.
-// ---------------------------------------------------------------------------
-
-const ODESLI_API = "https://api.song.link/v1-alpha.1/links";
-
-interface OdesliEntity {
-  id: string;
-  type: "song" | "album";
-  title?: string;
-  artistName?: string;
-  thumbnailUrl?: string;
-}
-
-interface OdesliResponse {
-  entityUniqueId: string;
-  entitiesByUniqueId: Record<string, OdesliEntity>;
-  linksByPlatform: Record<string, { url: string; entityUniqueId: string } | undefined>;
-}
-
-const ODESLI_PLATFORMS: [string, PlatformId][] = [
-  ["deezer", "deezer"],
-  ["spotify", "spotify"],
-  ["amazonMusic", "amazon"],
-  ["youtubeMusic", "ytmusic"],
-  ["youtube", "youtube"],
-];
-
-export async function odesli(url: string, { retries = 2 } = {}): Promise<OdesliResponse> {
-  const cacheKey = `odesli:${url}`;
-  const hit = cacheGet<OdesliResponse>(cacheKey, 7 * DAY);
-  if (hit) return hit;
-
-  const params = new URLSearchParams({ url, userCountry: process.env.ODESLI_COUNTRY ?? "BR" });
-  if (process.env.ODESLI_API_KEY) params.set("key", process.env.ODESLI_API_KEY);
-
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(`${ODESLI_API}?${params}`, { cache: "no-store" });
-    if (res.status === 429) {
-      if (attempt >= retries) throw new RateLimited();
-      const wait = Number(res.headers.get("retry-after")) * 1000 || 6000;
-      await sleep(Math.min(wait, 10_000));
-      continue;
-    }
-    if (!res.ok) throw new ResolveError("não achei essa música nos streamings");
-    const data = (await res.json()) as OdesliResponse;
-    cacheSet(cacheKey, data);
-    return data;
-  }
-}
-
-function linksFromOdesli(data: OdesliResponse): Links {
-  const links: Links = {};
-  for (const [key, id] of ODESLI_PLATFORMS) {
-    const url = data.linksByPlatform[key]?.url;
-    if (url && isTrustedLink(id, url)) links[id] = url;
-  }
-  return links;
-}
-
-function trackFromOdesli(data: OdesliResponse): Track {
-  // Prefer metadata from music services over YouTube video titles.
-  const entities = [
-    ...ODESLI_PLATFORMS.map(([key]) => data.linksByPlatform[key]?.entityUniqueId),
-    data.entityUniqueId,
-  ]
-    .map((id) => (id ? data.entitiesByUniqueId[id] : undefined))
-    .filter((e): e is OdesliEntity => Boolean(e));
-  const named = entities.find((e) => e.title && e.artistName) ?? entities[0];
-
-  return {
-    title: named?.title ?? "Sem título",
-    artist: named?.artistName ?? "Artista desconhecido",
-    cover: entities.find((e) => e.thumbnailUrl)?.thumbnailUrl,
-    links: linksFromOdesli(data),
-  };
-}
+/*
+ * How a link becomes a Track:
+ *   1. read title/artist from the source (Deezer API, Spotify page meta, YouTube oEmbed)
+ *   2. match it on Deezer, which gives us a Deezer link, cover and ISRC
+ *   3. other platforms are filled lazily on click (lookupLinks), falling back
+ *      to that platform's search page with "artist title".
+ */
 
 // ---------------------------------------------------------------------------
-// Deezer: open API, no key. Used for search and for playlist/album track lists.
+// Deezer: open API, no key. Backbone for search, matching and track lists.
 // ---------------------------------------------------------------------------
 
 interface DeezerTrack {
@@ -109,9 +39,11 @@ interface DeezerTrack {
 }
 
 interface DeezerAlbum {
+  id: number;
   title: string;
   cover_xl?: string;
   cover_big?: string;
+  artist?: { name: string };
   tracks: { data: DeezerTrack[] };
 }
 
@@ -122,7 +54,8 @@ interface DeezerPage<T> {
 
 async function deezer<T>(path: string): Promise<T> {
   const res = await fetch(`https://api.deezer.com/${path}`, { cache: "no-store" });
-  const data = (await res.json()) as T & { error?: { message?: string } };
+  const data = (await res.json()) as T & { error?: { code?: number } };
+  if (data.error?.code === 4) throw new RateLimited();
   if (!res.ok || data.error) throw new ResolveError("o Deezer não achou esse link");
   return data;
 }
@@ -139,7 +72,7 @@ function fromDeezer(t: DeezerTrack, album?: { title: string; cover?: string }): 
   };
 }
 
-async function deezerAlbum(id: string): Promise<Track[]> {
+async function deezerAlbum(id: string | number): Promise<Track[]> {
   const album = await deezer<DeezerAlbum>(`album/${id}`);
   const meta = { title: album.title, cover: album.cover_xl ?? album.cover_big };
   return album.tracks.data.slice(0, MAX_TRACKS).map((t) => fromDeezer(t, meta));
@@ -162,12 +95,174 @@ export async function searchDeezer(query: string, limit = 12): Promise<Track[]> 
   return page.data.map((t) => fromDeezer(t));
 }
 
+const normalize = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/** Best Deezer match for a title/artist pair, preferring one whose artist agrees. */
+async function matchOnDeezer(artist: string, title: string): Promise<Track | null> {
+  const candidates = await searchDeezer(`${artist} ${title}`, 5);
+  const wanted = normalize(artist);
+  return (
+    candidates.find((c) => normalize(c.artist).includes(wanted) || wanted.includes(normalize(c.artist))) ??
+    candidates[0] ??
+    null
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Source readers for links that are not Deezer.
+// ---------------------------------------------------------------------------
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+/** Reads the public link-preview tags of an open.spotify.com page. */
+async function spotifyMeta(url: string) {
+  // No accept-language on purpose: the English tag format below is what we parse.
+  const res = await fetch(url, { headers: { "user-agent": UA }, cache: "no-store" });
+  if (!res.ok) throw new ResolveError("o Spotify não abriu esse link");
+  const html = await res.text();
+  const meta = (name: string) => {
+    const tag = html.match(new RegExp(`<meta[^>]+(?:property|name)="${name}"[^>]*>`))?.[0];
+    const content = tag?.match(/content="([^"]*)"/)?.[1];
+    return content ? decodeEntities(content) : undefined;
+  };
+  let title = meta("og:title");
+  // og:description looks like "Artist · Album · Song · 1987"
+  let artist = meta("music:musician_description") ?? meta("og:description")?.split(" · ")[0];
+  // Album pages: "Listen to Discovery - Album by Daft Punk | Spotify"
+  const listen = title?.match(/^Listen to (.+) - (?:Album|EP|Single|Compilation) by (.+?) \| Spotify$/i);
+  if (listen) {
+    title = listen[1];
+    artist ??= listen[2];
+  }
+  if (!title || !artist) throw new ResolveError("não consegui ler esse link do Spotify");
+  return { title, artist, cover: meta("og:image") };
+}
+
+/** "Artist - Song (Official Video)" by "Artist - Topic" → { artist, title } */
+function parseYoutubeTitle(rawTitle: string, author: string) {
+  let artist = author.replace(/\s*-\s*Topic$/i, "").replace(/VEVO$/i, "").trim();
+  let title = rawTitle
+    .replace(/\s*[([][^)\]]*(official|oficial|video|vídeo|clipe|audio|áudio|lyric|letra|visualizer|hd|4k|remaster)[^)\]]*[)\]]/gi, "")
+    .trim();
+  const dash = title.match(/^(.+?)\s+[-–—|]\s+(.+)$/);
+  if (dash) {
+    artist = dash[1].trim();
+    title = dash[2].trim();
+  }
+  return { artist, title };
+}
+
+async function youtubeMeta(url: string) {
+  const res = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new ResolveError("não achei esse vídeo no YouTube");
+  const data = (await res.json()) as { title: string; author_name: string; thumbnail_url?: string };
+  return { ...parseYoutubeTitle(data.title, data.author_name), cover: data.thumbnail_url };
+}
+
+/** Builds a track from source metadata, enriched with its Deezer match when there is one. */
+async function withDeezerMatch(source: { title: string; artist: string; cover?: string }, links: Links): Promise<Track> {
+  const match = await matchOnDeezer(source.artist, source.title).catch(() => null);
+  if (!match) return { title: source.title, artist: source.artist, cover: source.cover, links };
+  return { ...match, links: { ...match.links, ...links } };
+}
+
+// ---------------------------------------------------------------------------
+// Optional direct-link providers (only used when keys are configured).
+// ---------------------------------------------------------------------------
+
+const ODESLI_PLATFORMS: [string, PlatformId][] = [
+  ["deezer", "deezer"],
+  ["spotify", "spotify"],
+  ["amazonMusic", "amazon"],
+  ["youtubeMusic", "ytmusic"],
+  ["youtube", "youtube"],
+];
+
+interface OdesliResponse {
+  linksByPlatform: Record<string, { url: string } | undefined>;
+}
+
+/** song.link closed its public API; this only runs with ODESLI_API_KEY. */
+async function odesliLinks(url: string): Promise<Links> {
+  const key = process.env.ODESLI_API_KEY;
+  if (!key) return {};
+
+  const cacheKey = `odesli:${url}`;
+  let data = cacheGet<OdesliResponse>(cacheKey, 7 * DAY);
+  if (!data) {
+    const params = new URLSearchParams({ url, key, userCountry: process.env.ODESLI_COUNTRY ?? "BR" });
+    const res = await fetch(`https://api.song.link/v1-alpha.1/links?${params}`, { cache: "no-store" });
+    if (res.status === 429) throw new RateLimited();
+    if (!res.ok) return {};
+    data = (await res.json()) as OdesliResponse;
+    cacheSet(cacheKey, data);
+  }
+
+  const links: Links = {};
+  for (const [name, id] of ODESLI_PLATFORMS) {
+    const link = data.linksByPlatform[name]?.url;
+    if (link && isTrustedLink(id, link)) links[id] = link;
+  }
+  return links;
+}
+
+async function spotifyToken(): Promise<string | null> {
+  const id = process.env.SPOTIFY_CLIENT_ID;
+  const secret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!id || !secret) return null;
+
+  const cached = cacheGet<string>("spotify:token", 50 * 60 * 1000);
+  if (cached) return cached;
+
+  const res = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const { access_token } = (await res.json()) as { access_token: string };
+  cacheSet("spotify:token", access_token);
+  return access_token;
+}
+
+async function spotifyByIsrc(isrc: string): Promise<string | undefined> {
+  const token = await spotifyToken();
+  if (!token) return undefined;
+  const res = await fetch(`https://api.spotify.com/v1/search?type=track&limit=1&q=${encodeURIComponent(`isrc:${isrc}`)}`, {
+    headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (res.status === 429) throw new RateLimited();
+  if (!res.ok) return undefined;
+  const data = (await res.json()) as { tracks?: { items?: { external_urls?: { spotify?: string } }[] } };
+  return data.tracks?.items?.[0]?.external_urls?.spotify;
+}
+
 // ---------------------------------------------------------------------------
 // Input parsing
 // ---------------------------------------------------------------------------
 
 async function followRedirect(url: string): Promise<string> {
-  const res = await fetch(url, { redirect: "follow", cache: "no-store" });
+  const res = await fetch(url, { redirect: "follow", headers: { "user-agent": UA }, cache: "no-store" });
   return res.url;
 }
 
@@ -175,7 +270,7 @@ async function resolveUrl(raw: string): Promise<Track[]> {
   let url = new URL(raw);
   let host = url.hostname.replace(/^www\./, "");
 
-  if (host === "link.deezer.com" || host === "deezer.page.link") {
+  if (["link.deezer.com", "deezer.page.link", "spotify.link"].includes(host)) {
     url = new URL(await followRedirect(url.href));
     host = url.hostname.replace(/^www\./, "");
   }
@@ -190,33 +285,44 @@ async function resolveUrl(raw: string): Promise<Track[]> {
   }
 
   if (host === "open.spotify.com") {
-    url.search = "";
-    url.pathname = url.pathname.replace(/^\/intl-[a-z-]+/i, "");
-    if (url.pathname.startsWith("/playlist/")) {
+    const match = url.pathname.match(/\/(track|album|playlist)\/([A-Za-z0-9]+)/);
+    if (!match) throw new ResolveError("link do Spotify que eu não entendi");
+    const [, kind, id] = match;
+    if (kind === "playlist") {
       throw new ResolveError("playlist do Spotify ainda não rola. Cola as faixas, ou a mesma playlist pelo Deezer");
     }
-  }
-
-  if (/^(m\.|music\.)?youtube\.com$/.test(host)) {
-    const v = url.searchParams.get("v");
-    if (!v) {
-      if (url.searchParams.has("list")) {
-        throw new ResolveError("playlist do YouTube ainda não rola. Cola as faixas uma por uma");
-      }
-    } else {
-      url.search = `?v=${v}`;
+    const clean = `https://open.spotify.com/${kind}/${id}`;
+    const meta = await spotifyMeta(clean);
+    if (kind === "album") {
+      const page = await deezer<DeezerPage<DeezerAlbum>>(
+        `search/album?q=${encodeURIComponent(`${meta.artist} ${meta.title}`)}&limit=1`,
+      );
+      if (!page.data[0]) throw new ResolveError("não achei esse álbum fora do Spotify");
+      return deezerAlbum(page.data[0].id);
     }
+    return [await withDeezerMatch(meta, { spotify: clean })];
   }
 
-  const data = await odesli(url.href);
-  const entity = data.entitiesByUniqueId[data.entityUniqueId];
-  if (entity?.type === "album") {
-    // Albums from any service get expanded through their Deezer equivalent.
-    const deezerId = data.linksByPlatform.deezer?.url.match(/\/album\/(\d+)/)?.[1];
-    if (deezerId) return deezerAlbum(deezerId);
-    throw new ResolveError("achei o álbum, mas não consegui abrir as faixas");
+  if (/^(m\.|music\.)?youtube\.com$|^youtu\.be$/.test(host)) {
+    const v = host === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v");
+    if (!v) {
+      throw new ResolveError(
+        url.searchParams.has("list")
+          ? "playlist do YouTube ainda não rola. Cola as faixas uma por uma"
+          : "link do YouTube que eu não entendi",
+      );
+    }
+    const isMusic = host === "music.youtube.com";
+    const clean = `https://${isMusic ? "music" : "www"}.youtube.com/watch?v=${v}`;
+    const meta = await youtubeMeta(clean);
+    return [await withDeezerMatch(meta, isMusic ? { ytmusic: clean } : { youtube: clean })];
   }
-  return [trackFromOdesli(data)];
+
+  if (/(^|\.)amazon\./.test(host)) {
+    throw new ResolveError("link da Amazon ainda não dá pra ler. Busca pelo nome que eu acho");
+  }
+
+  throw new ResolveError("esse site eu ainda não conheço");
 }
 
 async function searchFirst(query: string): Promise<Track[]> {
@@ -252,6 +358,8 @@ export async function resolveInput(input: string): Promise<ResolveResult> {
           message: err instanceof ResolveError ? err.message : "não deu pra ler esse link",
         });
       }
+      // Deezer allows ~50 requests / 5s; keep long pastes polite.
+      if (lines.length > 10) await sleep(120);
     }
   }
 
@@ -260,29 +368,30 @@ export async function resolveInput(input: string): Promise<ResolveResult> {
 }
 
 /**
- * Fills in the missing platform links for a saved track. Called lazily when
- * someone clicks a platform, which spreads Odesli calls out over time.
- * Throws RateLimited so the caller can retry later instead of caching a miss.
+ * Fills in missing platform links for a saved track. Runs lazily when someone
+ * clicks a platform. Throws RateLimited so the caller can retry later instead
+ * of remembering a miss.
  */
 export async function lookupLinks(track: Track): Promise<Links> {
   const source = track.links.deezer ?? track.links.spotify ?? Object.values(track.links)[0];
-  let links: Links = {};
+  const links: Links = source ? await odesliLinks(source) : {};
 
-  if (source) {
+  if (!links.deezer && !track.links.deezer) {
     try {
-      links = linksFromOdesli(await odesli(source, { retries: 0 }));
+      links.deezer = track.isrc
+        ? (await deezer<DeezerTrack>(`track/isrc:${track.isrc}`)).link
+        : (await matchOnDeezer(track.artist, track.title))?.links.deezer;
     } catch (err) {
       if (err instanceof RateLimited) throw err;
     }
   }
 
-  if (!links.deezer && track.isrc) {
-    try {
-      links.deezer = (await deezer<DeezerTrack>(`track/isrc:${track.isrc}`)).link;
-    } catch {
-      // fall back to a search link
-    }
+  if (!links.spotify && !track.links.spotify && track.isrc) {
+    links.spotify = await spotifyByIsrc(track.isrc);
   }
 
+  for (const key of Object.keys(links) as PlatformId[]) {
+    if (!links[key]) delete links[key];
+  }
   return links;
 }
