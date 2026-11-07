@@ -43,6 +43,46 @@ npm start
 
 Em dev, o banco SQLite é criado sozinho em `data/fwd.db` (ignorado pelo git). Em produção ele fica no [Turso](https://turso.tech) (libSQL): mesmo SQL, só muda a URL.
 
+### Testes
+
+```bash
+npm test            # testes unitários (Vitest), uma vez
+npm run test:watch  # modo watch
+npm run typecheck
+```
+
+## Fluxo de trabalho
+
+```
+main  ← produção (deploy automático na Vercel)
+ └─ dev  ← staging (deploy de preview na Vercel)
+     └─ feat/<nome>, fix/<nome>, chore/<nome>  ← uma branch por feature, cortada da dev
+```
+
+1. `git switch dev && git pull && git switch -c feat/minha-feature`
+2. Commit, push e PR **para a `dev`**. O GitHub Actions roda typecheck, testes e build.
+3. Merge na `dev` → deploy de preview. Quando a `dev` estiver boa, PR `dev → main` → deploy de produção.
+
+### CI/CD (GitHub Actions)
+
+`.github/workflows/ci-cd.yml`:
+
+| Evento | O que roda |
+| --- | --- |
+| PR para `dev` ou `main` | typecheck, testes, build |
+| push na `dev` | CI e, se passar, deploy de **preview** na Vercel |
+| push na `main` | CI e, se passar, deploy de **produção** na Vercel |
+
+O deploy só acontece depois dos testes, por isso o `vercel.json` desliga o deploy automático da integração Git da Vercel. Pra ativar, crie em *Settings → Secrets and variables → Actions* do repositório:
+
+| Secret | Onde pegar |
+| --- | --- |
+| `VERCEL_TOKEN` | vercel.com/account/tokens |
+| `VERCEL_ORG_ID` | `.vercel/project.json` depois de rodar `npx vercel link` (campo `orgId`) |
+| `VERCEL_PROJECT_ID` | mesmo arquivo (campo `projectId`) |
+
+Sem esses secrets o CI roda normalmente e o deploy é pulado com um aviso. As variáveis do app (`TURSO_*` etc.) ficam na Vercel, separadas por ambiente (Production / Preview): use um banco Turso pra cada um.
+
 ### Deploy (Vercel + Turso)
 
 1. Crie o banco no Turso e gere um token:
