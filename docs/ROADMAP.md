@@ -41,4 +41,6 @@
 - [x] Banco no Turso (libSQL) pra rodar na Vercel
 - [ ] Primeiro deploy na Vercel
 - [ ] Domínio próprio
-- [ ] Testes de `parseYoutubeTitle`, `cleanTrack` e `isTrustedLink`
+- [x] Testes unitários (Vitest) de `parseYoutubeTitle`, `cleanTrack`, `isTrustedLink`, helpers de abertura de app e formatação
+- [x] CI/CD no GitHub Actions com deploy na Vercel (preview na `dev`, produção na `main`)
+- [ ] Testes de integração das rotas `/api/*` com banco em memória

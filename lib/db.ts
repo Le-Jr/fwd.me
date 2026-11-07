@@ -14,7 +14,8 @@ const SCHEMA = [
      title      TEXT NOT NULL,
      note       TEXT,
      author     TEXT,
-     created_at INTEGER NOT NULL
+     created_at INTEGER NOT NULL,
+     secret     TEXT
    )`,
   `CREATE TABLE IF NOT EXISTS tracks (
      id          TEXT PRIMARY KEY,
@@ -56,7 +57,16 @@ function connect(): Client {
 async function init(): Promise<Client> {
   const client = connect();
   await client.batch(SCHEMA, "write");
+  await migrate(client);
   return client;
+}
+
+/** Additive migrations for databases created before a column existed. */
+async function migrate(client: Client): Promise<void> {
+  const { rows } = await client.execute("SELECT name FROM pragma_table_info('mixes')");
+  const columns = new Set(rows.map((r) => String(r.name)));
+  // E2E-encrypted subject/note/sender (see lib/crypto.ts); NULL on legacy plaintext mixes
+  if (!columns.has("secret")) await client.execute("ALTER TABLE mixes ADD COLUMN secret TEXT");
 }
 
 export function getDb(): Promise<Client> {
