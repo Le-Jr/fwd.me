@@ -4,7 +4,9 @@ import { encryptSecret, generateKey } from "@/lib/crypto";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Cover from "./Cover";
-import TapeDeck, { type TapeInsert } from "./TapeDeck";
+import TapeDeck from "./TapeDeck";
+import { deckClock, SIDE_SECONDS } from "@/lib/deck";
+import { tapeFor } from "@/lib/tapes";
 import { formatDuration, totalDuration } from "@/lib/format";
 import type { Track } from "@/lib/types";
 
@@ -15,6 +17,9 @@ const withKey = (t: Track): Draft => ({ ...t, key: `t${++seq}` });
 const identity = (t: Track) => Object.values(t.links)[0] ?? `${t.artist}|${t.title}`;
 
 const FLY_MS = 560;
+
+/** the last addition; a new id replays the deck's insert animation */
+type TapeInsert = { id: number; label: string };
 
 /**
  * Throws a mini tape from `from` into the deck slot. Returns how long to wait
@@ -316,7 +321,41 @@ export default function Composer() {
           </span>
         </div>
 
-        <TapeDeck count={tracks.length} total={total} title={title} lastAdd={lastAdd} />
+        <TapeDeck
+          tape={
+            tracks.length
+              ? {
+                  key: lastAdd?.id ?? 0,
+                  label: `FWD: ${title.trim() || "ouve isso"}`,
+                  palette: tapeFor(title.trim() || "ouve isso"),
+                  progress: total / SIDE_SECONDS,
+                }
+              : null
+          }
+          active={tracks.length ? "rew" : null}
+          lcd={
+            tracks.length ? (
+              <>
+                <span>FX {String(tracks.length).padStart(2, "0")}</span>
+                <span className={total > SIDE_SECONDS ? "deck-over" : undefined}>
+                  {deckClock(total)}/{deckClock(SIDE_SECONDS)}
+                </span>
+              </>
+            ) : (
+              <span>INSIRA UMA FITA</span>
+            )
+          }
+          msg={
+            tracks.length ? (
+              <span key={lastAdd?.id ?? 0} className="deck-toast">
+                {lastAdd ? `▸ ${lastAdd.label}` : `${tracks.length} na fita`}
+                {total > SIDE_SECONDS && <span className="deck-warn"> · passou de um lado</span>}
+              </span>
+            ) : (
+              "nenhuma faixa ainda. cola um link aí em cima ↑"
+            )
+          }
+        />
 
         {tracks.length > 0 && (
           <ol className="tracklist compact">

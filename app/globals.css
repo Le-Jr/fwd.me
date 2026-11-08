@@ -1272,7 +1272,7 @@ a.radio-title:hover strong {
 }
 
 .k7-shell {
-  fill: #1b1a2a;
+  fill: var(--k7-shell, #1b1a2a);
   stroke: #000;
   stroke-width: 1.5;
 }
@@ -1282,20 +1282,20 @@ a.radio-title:hover strong {
 }
 
 .k7-label {
-  fill: #f2f0ff;
+  fill: var(--k7-label, #f2f0ff);
 }
 
 .k7-text {
   font-family: var(--font-pixel), monospace;
   font-size: 12px;
-  fill: #10101a;
+  fill: var(--k7-ink, #10101a);
 }
 
 .k7-side {
   font-family: var(--font-sans), sans-serif;
   font-size: 15px;
   font-weight: 700;
-  fill: #10101a;
+  fill: var(--k7-ink, #10101a);
 }
 
 .k7-window {
@@ -1316,7 +1316,7 @@ a.radio-title:hover strong {
 }
 
 .k7-bottom {
-  fill: #252338;
+  fill: var(--k7-bottom, #252338);
   stroke: #000;
 }
 
@@ -1622,71 +1622,55 @@ html.k7-intro .k7-overlay {
   white-space: nowrap;
 }
 
-/* ---------- tape deck (composer) ---------- */
+/* ---------- tape deck (composer + mix page) ---------- */
 
 .deck {
   display: grid;
-  grid-template-columns: 172px minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 40%),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 5px),
-    #0c0c15;
-  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.5);
-}
-
-.deck-bay {
-  position: relative;
-  padding: 8px;
+  gap: 12px;
+  width: min(420px, 100%);
+  margin: 18px auto 0;
+  padding: 16px;
   border: 1px solid #000;
-  border-radius: 3px;
-  background: #05050a;
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8);
-  aspect-ratio: 176 / 116;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 30%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 2px, transparent 2px 5px),
+    #15141f;
+  box-shadow:
+    6px 6px 0 var(--deck-accent, var(--pink)),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.5);
 }
 
-.deck-slot {
-  height: 100%;
-  border: 1px dashed var(--line-strong);
-  border-radius: 6px;
+.deck-big {
+  --deck-accent: var(--cyan);
+  margin-top: 22px;
 }
 
-.deck-k7 {
-  animation: deck-insert 0.55s cubic-bezier(0.3, 1.3, 0.5, 1) both;
-}
-
-/* every insert spins the reels for a moment, like the deck taking the tape */
-.deck-k7 .k7-reel {
-  animation: k7-spin 0.55s linear 0.45s 3;
-}
-
-@keyframes deck-insert {
-  from {
-    opacity: 0;
-    transform: translateY(-42px) rotate(-6deg) scale(0.92);
-  }
-  60% {
-    opacity: 1;
-  }
-}
-
-.deck-panel {
-  display: grid;
-  gap: 8px;
+.deck-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
+}
+
+.deck-brand {
+  flex: none;
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
 }
 
 .deck-lcd {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
-  padding: 6px 10px;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  min-width: 0;
+  padding: 5px 10px;
   border: 1px solid #000;
   border-radius: 3px;
   background: #0b1a06;
@@ -1696,9 +1680,11 @@ html.k7-intro .k7-overlay {
   line-height: 1;
   color: var(--lime);
   text-shadow: 0 0 6px rgba(198, 255, 61, 0.55);
+  white-space: nowrap;
 }
 
 .deck-led {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -1716,9 +1702,96 @@ html.k7-intro .k7-overlay {
   text-shadow: 0 0 6px rgba(255, 61, 242, 0.6);
 }
 
+.deck-bay {
+  position: relative;
+  display: grid;
+  padding: 8px;
+  border: 1px solid #000;
+  border-radius: 6px;
+  background: #05050a;
+  box-shadow: inset 0 3px 10px rgba(0, 0, 0, 0.9);
+}
+
+.deck-bay > * {
+  grid-area: 1 / 1;
+}
+
+.deck-ghost {
+  visibility: hidden;
+}
+
+.deck-is-empty .deck-bay::before {
+  content: "";
+  grid-area: 1 / 1;
+  margin: 4px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+}
+
+.deck-glass {
+  z-index: 1;
+  border-radius: 6px;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.14), transparent 35%, transparent 62%, rgba(61, 242, 255, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.deck-k7 {
+  animation: deck-insert 0.55s cubic-bezier(0.3, 1.3, 0.5, 1) both;
+}
+
+/* every insert spins the reels for a moment, like the deck taking the tape */
+.deck-k7 .k7-reel {
+  animation: k7-spin 0.55s linear 0.45s 3;
+}
+
+/* ...or for as long as the song plays */
+.deck-k7 .k7-on .k7-reel {
+  animation: k7-spin 1.3s linear infinite;
+  animation-play-state: running;
+}
+
+@keyframes deck-insert {
+  from {
+    opacity: 0;
+    transform: translateY(-38%) rotate(-5deg) scale(0.94);
+  }
+  60% {
+    opacity: 1;
+  }
+}
+
+.deck-keys {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.deck-key {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border: 1px solid #000;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #2c2a40, #1c1b2a);
+  box-shadow: 0 3px 0 #000;
+  color: var(--muted);
+  transition:
+    transform 0.12s,
+    box-shadow 0.12s,
+    color 0.12s;
+}
+
+.deck-key-on {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 #000;
+  color: var(--lime);
+}
+
 .deck-msg {
   margin: 0;
   overflow: hidden;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono), monospace;
@@ -1731,8 +1804,18 @@ html.k7-intro .k7-overlay {
 }
 
 .deck-toast {
+  display: inline;
   color: var(--text);
   animation: deck-toast 0.45s ease-out 0.25s both;
+}
+
+.deck-toast b {
+  font-weight: 700;
+}
+
+.deck-where,
+.deck-warn {
+  color: var(--muted);
 }
 
 .deck-warn {
@@ -1742,8 +1825,14 @@ html.k7-intro .k7-overlay {
 @keyframes deck-toast {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
+}
+
+/* the song on the deck, in the list */
+.track-now {
+  border-radius: var(--radius);
+  background: rgba(61, 242, 255, 0.06);
+  box-shadow: inset 3px 0 0 var(--cyan);
 }
 
 /* mini tape thrown from a search result into the deck */
@@ -1827,17 +1916,15 @@ html.k7-intro .k7-overlay {
   }
 
   .deck {
-    grid-template-columns: 118px minmax(0, 1fr);
-    gap: 12px;
-    padding: 10px;
-  }
-
-  .deck-bay {
-    padding: 5px;
+    gap: 10px;
+    padding: 12px;
+    box-shadow:
+      4px 4px 0 var(--deck-accent, var(--pink)),
+      inset 0 -4px 0 rgba(0, 0, 0, 0.5);
   }
 
   .deck-lcd {
     font-size: 19px;
-    padding: 5px 8px;
+    padding: 4px 8px;
   }
 }

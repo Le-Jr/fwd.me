@@ -1,67 +1,81 @@
 import Cassette from "./Cassette";
-import { formatDuration } from "@/lib/format";
+import type { TapePalette } from "@/lib/tapes";
 
-/** one side of a C90 */
-const SIDE_SECONDS = 45 * 60;
+export interface DeckTape {
+  /** a new key ejects the old tape and slides this one in */
+  key: string | number;
+  label: string;
+  art?: string | null;
+  palette: TapePalette;
+  /** 0..1, tape moving from the left reel to the right */
+  progress: number;
+  spinning?: boolean;
+}
 
-export type TapeInsert = { id: number; label: string };
+export type DeckKey = "rew" | "play" | "ff" | "stop" | "eject";
 
 type Props = {
-  count: number;
-  total: number;
-  title: string;
-  /** the last addition; a new id replays the insert animation */
-  lastAdd: TapeInsert | null;
+  tape: DeckTape | null;
+  /** text on the green display */
+  lcd: React.ReactNode;
+  /** line under the deck */
+  msg: React.ReactNode;
+  /** the key shown pressed */
+  active?: DeckKey | null;
+  className?: string;
 };
 
-const clock = (s: number) => {
-  const m = Math.floor(s / 60);
-  return `${String(m).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-};
+const KEYS: { id: DeckKey; d: string }[] = [
+  { id: "rew", d: "M11 6v12L2 12zM22 6v12l-9-6z" },
+  { id: "play", d: "M7 5v14l12-7z" },
+  { id: "ff", d: "M2 6v12l9-6zM13 6v12l9-6z" },
+  { id: "stop", d: "M6 6h12v12H6z" },
+  { id: "eject", d: "M12 5l8 9H4zM4 16h16v3H4z" },
+];
 
 /**
- * Tape deck above the attachment list: every addition drops a tape into the
- * slot, and the tape fills up as the mix gets longer (one C90 side).
+ * The tape deck shown in the composer and on a mix page. Purely visual: the
+ * keys mirror state, they are not controls (the real ones sit next to it).
  */
-export default function TapeDeck({ count, total, title, lastAdd }: Props) {
-  const empty = count === 0;
-  const over = total > SIDE_SECONDS;
-
+export default function TapeDeck({ tape, lcd, msg, active = null, className = "" }: Props) {
   return (
-    <div className={`deck${empty ? " deck-is-empty" : ""}`}>
-      <div className="deck-bay">
-        {empty ? (
-          <div className="deck-slot" aria-hidden="true" />
-        ) : (
-          <div key={lastAdd?.id ?? 0} className="deck-k7">
-            <Cassette label={`FWD: ${title.trim() || "ouve isso"}`} progress={total / SIDE_SECONDS} />
+    <div className={`deck${tape ? "" : " deck-is-empty"}${className ? ` ${className}` : ""}`}>
+      <div className="deck-top">
+        <span className="deck-brand">fwd·deck</span>
+        <span className="deck-lcd">
+          <span className="deck-led" />
+          {lcd}
+        </span>
+      </div>
+
+      <div className="deck-bay" aria-hidden="true">
+        {/* sizes the bay the same with or without a tape */}
+        <Cassette className="deck-ghost" />
+        {tape && (
+          <div key={tape.key} className="deck-k7">
+            <Cassette
+              label={tape.label}
+              art={tape.art}
+              palette={tape.palette}
+              progress={tape.progress}
+              spinning={tape.spinning}
+            />
           </div>
         )}
+        <div className="deck-glass" />
       </div>
 
-      <div className="deck-panel">
-        <div className="deck-lcd" aria-hidden="true">
-          <span className="deck-led" />
-          {empty ? (
-            <span>INSIRA UMA FITA</span>
-          ) : (
-            <>
-              <span>FX {String(count).padStart(2, "0")}</span>
-              <span className={over ? "deck-over" : undefined}>
-                {clock(total)}/{clock(SIDE_SECONDS)}
-              </span>
-            </>
-          )}
-        </div>
-        {empty ? (
-          <p className="deck-msg">nenhuma faixa ainda. cola um link aí em cima ↑</p>
-        ) : (
-          <p key={lastAdd?.id ?? 0} className="deck-msg deck-toast">
-            {lastAdd ? <>▸ {lastAdd.label}</> : `${count} na fita`}
-            {over && <span className="deck-warn"> · passou de um lado ({formatDuration(total)})</span>}
-          </p>
-        )}
+      <div className="deck-keys" aria-hidden="true">
+        {KEYS.map((k) => (
+          <span key={k.id} className={active === k.id ? "deck-key deck-key-on" : "deck-key"}>
+            <svg viewBox="0 0 24 24" width="12" height="12">
+              <path d={k.d} fill="currentColor" />
+            </svg>
+          </span>
+        ))}
       </div>
+
+      <p className="deck-msg">{msg}</p>
     </div>
   );
 }
