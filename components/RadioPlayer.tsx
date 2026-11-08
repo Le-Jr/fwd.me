@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RadioTrack } from "@/lib/radio";
+import Cassette from "./Cassette";
 
 const DISMISS_KEY = "fwd.radio.off";
 const VOLUME_KEY = "fwd.radio.vol";
@@ -31,6 +32,7 @@ export default function RadioPlayer() {
   const [status, setStatus] = useState<Status>("loading");
   const [volume, setVolumeState] = useState(DEFAULT_VOLUME);
   const [showVolume, setShowVolume] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,6 +52,7 @@ export default function RadioPlayer() {
       const data = (await res.json()) as { track?: RadioTrack };
       if (!data.track) throw new Error("no track");
       setTrack(data.track);
+      setProgress(0);
       audio.src = data.track.preview;
       if (!autoplay) {
         setStatus("ready");
@@ -220,20 +223,25 @@ export default function RadioPlayer() {
     <>
       {/* kept mounted so the element (and its audio graph) survives track changes */}
       <audio ref={audioRef} crossOrigin="anonymous" preload="auto" onEnded={() => load(true)}
+        onTimeUpdate={(e) => {
+          const a = e.currentTarget;
+          setProgress(a.duration ? a.currentTime / a.duration : 0);
+        }}
         onError={() => statusRef.current !== "loading" && setStatus("error")}
       />
       {!hidden && (
         <aside className={`radio radio-${status}`} aria-label="rádio aleatória do fwd.fm">
-          {track?.cover ? (
-            /* eslint-disable-next-line @next/next/no-img-element -- Deezer CDN cover */
-            <img className="radio-cover" src={track.cover} alt="" referrerPolicy="no-referrer" />
-          ) : (
-            <span className="radio-cover" aria-hidden="true" />
-          )}
+          <Cassette
+            className="radio-k7"
+            label={track ? track.title : "rádio fwd"}
+            art={track?.cover}
+            spinning={status === "playing"}
+            progress={progress}
+          />
 
           <div className="radio-meta">
             <span className="radio-label">
-              <span className="radio-dot" /> rádio fwd · {label}
+              <span className="radio-dot" /> fwd · {label}
             </span>
             {track ? (
               <a className="radio-title" href={track.link} target="_blank" rel="noopener" title="abrir no Deezer">

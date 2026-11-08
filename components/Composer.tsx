@@ -4,6 +4,7 @@ import { encryptSecret, generateKey } from "@/lib/crypto";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Cover from "./Cover";
+import TapeDeck, { type TapeInsert } from "./TapeDeck";
 import { formatDuration, totalDuration } from "@/lib/format";
 import type { Track } from "@/lib/types";
 
@@ -12,6 +13,45 @@ type Draft = Track & { key: string };
 let seq = 0;
 const withKey = (t: Track): Draft => ({ ...t, key: `t${++seq}` });
 const identity = (t: Track) => Object.values(t.links)[0] ?? `${t.artist}|${t.title}`;
+
+const FLY_MS = 560;
+
+/**
+ * Throws a mini tape from `from` into the deck slot. Returns how long to wait
+ * before adding the track so the deck's insert lands with it (0 = no flight:
+ * reduced motion, or the deck is off screen).
+ */
+function flyToDeck(from: HTMLElement): number {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return 0;
+  const bay = document.querySelector(".deck-bay");
+  if (!bay) return 0;
+  const a = from.getBoundingClientRect();
+  const b = bay.getBoundingClientRect();
+  if (b.bottom < 0 || b.top > window.innerHeight) return 0;
+
+  const tape = document.createElement("div");
+  tape.className = "fly-k7";
+  tape.setAttribute("aria-hidden", "true");
+  const x0 = a.left + a.width / 2 - 22;
+  const y0 = a.top + a.height / 2 - 14;
+  const dx = b.left + b.width / 2 - 22 - x0;
+  const dy = b.top + b.height / 2 - 14 - y0;
+  const lift = Math.min(140, Math.abs(dy) / 2 + 50);
+  tape.style.left = `${x0}px`;
+  tape.style.top = `${y0}px`;
+  document.body.appendChild(tape);
+  const anim = tape.animate(
+    [
+      { transform: "translate(0, 0) scale(0.7) rotate(0deg)", opacity: 0 },
+      { transform: `translate(${dx / 2}px, ${dy / 2 - lift}px) scale(1.2) rotate(-14deg)`, opacity: 1, offset: 0.45 },
+      { transform: `translate(${dx}px, ${dy}px) scale(1.7) rotate(0deg)`, opacity: 0.15 },
+    ],
+    { duration: FLY_MS, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+  );
+  anim.onfinish = () => tape.remove();
+  anim.oncancel = () => tape.remove();
+  return FLY_MS - 140;
+}
 
 export default function Composer() {
   const router = useRouter();
@@ -26,6 +66,7 @@ export default function Composer() {
   const [tracks, setTracks] = useState<Draft[]>([]);
   const [busy, setBusy] = useState<null | "resolve" | "save">(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [lastAdd, setLastAdd] = useState<TapeInsert | null>(null);
 
   useEffect(() => {
     const q = query.trim();
@@ -53,11 +94,25 @@ export default function Composer() {
   }, [query]);
 
   function addTracks(list: Track[]) {
+    const known = new Set(tracks.map(identity));
+    const added = list.filter((t) => !known.has(identity(t)) && known.add(identity(t)));
+    if (added.length) {
+      setLastAdd((prev) => ({
+        id: (prev?.id ?? 0) + 1,
+        label: added.length === 1 ? `${added[0].title} · ${added[0].artist}` : `+${added.length} faixas na fita`,
+      }));
+    }
     setTracks((current) => {
       const seen = new Set(current.map(identity));
       const fresh = list.filter((t) => !seen.has(identity(t)) && seen.add(identity(t)));
       return [...current, ...fresh.map(withKey)];
     });
+  }
+
+  function addFromSearch(button: HTMLElement, t: Track) {
+    const wait = flyToDeck(button);
+    if (wait) setTimeout(() => addTracks([t]), wait);
+    else addTracks([t]);
   }
 
   function move(index: number, delta: number) {
@@ -120,6 +175,7 @@ export default function Composer() {
   }
 
   const total = totalDuration(tracks);
+  const inTape = new Set(tracks.map(identity));
 
   return (
     <section className="window" aria-label="Novo FWD">
@@ -217,20 +273,30 @@ export default function Composer() {
               autoFocus
             />
             {searching && <p className="hint">buscando...</p>}
-            <ul className="results">
-              {results.map((t) => (
-                <li key={identity(t)} className="result">
-                  <Cover src={t.cover} />
-                  <div className="meta">
-                    <strong>{t.title}</strong>
-                    <span className="artist">{t.artist}</span>
-                  </div>
-                  <button type="button" className="btn btn-sm" onClick={() => addTracks([t])}>
-                    + add
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {results.length > 0 && (
+              <ul className="results">
+                {results.map((t) => {
+                  const added = inTape.has(identity(t));
+                  return (
+                    <li key={identity(t)} className={added ? "result result-added" : "result"}>
+                      <Cover src={t.cover} />
+                      <div className="meta">
+                        <strong>{t.title}</strong>
+                        <span className="artist">{t.artist}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={added}
+                        onClick={(e) => addFromSearch(e.currentTarget, t)}
+                      >
+                        {added ? "✓ na fita" : "+ add"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
 
@@ -250,9 +316,9 @@ export default function Composer() {
           </span>
         </div>
 
-        {tracks.length === 0 ? (
-          <p className="empty">nenhuma faixa ainda. cola um link aí em cima ↑</p>
-        ) : (
+        <TapeDeck count={tracks.length} total={total} title={title} lastAdd={lastAdd} />
+
+        {tracks.length > 0 && (
           <ol className="tracklist compact">
             {tracks.map((t, i) => (
               <li key={t.key} className="track">
