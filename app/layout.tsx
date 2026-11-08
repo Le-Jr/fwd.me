@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Space_Grotesk, VT323 } from "next/font/google";
 import Link from "next/link";
+import CassetteIntro, { INTRO_SCRIPT } from "@/components/CassetteIntro";
 import Eq from "@/components/Eq";
 import RadioPlayer from "@/components/RadioPlayer";
 import "./globals.css";
@@ -21,7 +22,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={`${sans.variable} ${mono.variable} ${pixel.variable}`}>
+    // the inline script may add a class before hydration
+    <html lang="pt-BR" className={`${sans.variable} ${mono.variable} ${pixel.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: INTRO_SCRIPT }} />
+      </head>
       <body>
         <header className="topbar shell">
           <Link href="/" className="logo" aria-label="fwd.fm, início">
@@ -37,6 +42,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           fwd.fm · feito de fone de ouvido · links via song.link &amp; Deezer
         </footer>
         <RadioPlayer />
+        <CassetteIntro />
       </body>
     </html>
   );
