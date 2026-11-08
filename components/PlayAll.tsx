@@ -24,6 +24,8 @@ interface Props {
   /** index of the next track in queue mode, or null when the queue is off */
   pos: number | null;
   setPos: (pos: number | null) => void;
+  /** a track (by index) was opened, for the tape deck */
+  onPlay?: (index: number) => void;
 }
 
 /**
@@ -34,7 +36,7 @@ interface Props {
  * - Spotify on desktop also gets "copy links", which pasted into a playlist in
  *   the Spotify app adds every track at once.
  */
-export default function PlayAll({ platform, tracks, playlist, loading, device, embedded, pos, setPos }: Props) {
+export default function PlayAll({ platform, tracks, playlist, loading, device, embedded, pos, setPos, onPlay }: Props) {
   const [copied, setCopied] = useState(false);
   const n = tracks.length;
   if (n < 2) return null;
@@ -58,7 +60,7 @@ export default function PlayAll({ platform, tracks, playlist, loading, device, e
     const url = playlist?.[platform.id as "youtube" | "ytmusic"];
     main = url ? (
       <>
-        <StreamLink {...common} web={url} fallback={url} className="open-btn playall-btn">
+        <StreamLink {...common} web={url} fallback={url} className="open-btn playall-btn" onOpen={() => onPlay?.(0)}>
           ▶ tocar tudo
         </StreamLink>
         <span className="playall-hint">
@@ -78,7 +80,15 @@ export default function PlayAll({ platform, tracks, playlist, loading, device, e
   } else if (pos === null) {
     main = (
       <>
-        <TrackLink {...common} track={tracks[0]} className="open-btn playall-btn" onOpen={() => setPos(1)}>
+        <TrackLink
+          {...common}
+          track={tracks[0]}
+          className="open-btn playall-btn"
+          onOpen={() => {
+            onPlay?.(0);
+            setPos(1);
+          }}
+        >
           ▶ tocar em sequência
         </TrackLink>
         <span className="playall-hint">abre a 1ª faixa. volta aqui que a próxima fica a um toque</span>
@@ -91,7 +101,10 @@ export default function PlayAll({ platform, tracks, playlist, loading, device, e
           {...common}
           track={tracks[pos]}
           className="open-btn playall-btn"
-          onOpen={() => setPos(pos + 1)}
+          onOpen={() => {
+            onPlay?.(pos);
+            setPos(pos + 1);
+          }}
           aria-label={`Próxima: ${tracks[pos].title}`}
         >
           ▶ próxima

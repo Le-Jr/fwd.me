@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RadioTrack } from "@/lib/radio";
 import Cassette from "./Cassette";
+import { tapeFor } from "@/lib/tapes";
 
 const DISMISS_KEY = "fwd.radio.off";
 const VOLUME_KEY = "fwd.radio.vol";
@@ -235,6 +236,7 @@ export default function RadioPlayer() {
             className="radio-k7"
             label={track ? track.title : "rádio fwd"}
             art={track?.cover}
+            palette={tapeFor(track?.link)}
             spinning={status === "playing"}
             progress={progress}
           />

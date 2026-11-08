@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { TAPES, type TapePalette } from "@/lib/tapes";
 
 type Props = {
   /** handwritten line on the label */
@@ -10,6 +11,8 @@ type Props = {
   /** 0 = all tape on the left reel, 1 = all on the right */
   progress?: number;
   side?: string;
+  /** colors; defaults to the house neon tape */
+  palette?: TapePalette;
   className?: string;
 };
 
@@ -21,7 +24,15 @@ const REELS = [56, 104] as const;
  * A compact cassette tape drawn in SVG, decorative only (aria-hidden).
  * Reels spin with CSS (`.k7-on`), and the tape packs grow and shrink with `progress`.
  */
-export default function Cassette({ label, art, spinning = false, progress = 0, side = "A", className = "" }: Props) {
+export default function Cassette({
+  label,
+  art,
+  spinning = false,
+  progress = 0,
+  side = "A",
+  palette = TAPES[0],
+  className = "",
+}: Props) {
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   const p = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
   const packs = [10 + 14 * (1 - p), 10 + 14 * p];
@@ -33,15 +44,23 @@ export default function Cassette({ label, art, spinning = false, progress = 0, s
       viewBox="0 0 160 100"
       aria-hidden="true"
       focusable="false"
+      style={
+        {
+          "--k7-shell": palette.shell,
+          "--k7-bottom": palette.bottom,
+          "--k7-label": palette.label,
+          "--k7-ink": palette.ink,
+        } as React.CSSProperties
+      }
     >
       <defs>
         <clipPath id={`win${id}`}>
           <rect x="38" y="31" width="84" height="26" rx="13" />
         </clipPath>
         <linearGradient id={`band${id}`} x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#ff3df2" />
-          <stop offset="0.5" stopColor="#c6ff3d" />
-          <stop offset="1" stopColor="#3df2ff" />
+          <stop offset="0" stopColor={palette.band[0]} />
+          <stop offset="0.5" stopColor={palette.band[1]} />
+          <stop offset="1" stopColor={palette.band[2]} />
         </linearGradient>
       </defs>
 
@@ -65,7 +84,8 @@ export default function Cassette({ label, art, spinning = false, progress = 0, s
       {art && (
         <image href={art} x="14" y="31" width="22" height="26" preserveAspectRatio="xMidYMid slice" />
       )}
-      <text className="k7-side" x="128" y="51">
+      <circle className="k7-label" cx="134" cy="44" r="9" />
+      <text className="k7-side" x="134" y="49.5" textAnchor="middle">
         {side}
       </text>
 
