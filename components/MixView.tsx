@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Cover from "./Cover";
+import MixDeck, { type NowPlaying } from "./MixDeck";
 import PlayAll, { type Playlist } from "./PlayAll";
 import { TrackLink } from "./StreamLink";
 import { decryptSecret, keyFromHash, type MixSecret } from "@/lib/crypto";
@@ -13,6 +14,7 @@ import type { Links, Mix, PlatformId, StoredTrack } from "@/lib/types";
 
 const STORAGE_KEY = "fwd.platform";
 const queueKey = (id: string) => `fwd.queue.${id}`;
+const nowKey = (id: string) => `fwd.now.${id}`;
 
 /** Subject/sender/note as shown: decrypted from the link key, or legacy plaintext. */
 type Letter =
@@ -37,6 +39,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
   const [queuePos, setQueuePosState] = useState<number | null>(null);
   const [letter, setLetter] = useState<Letter>(() => (mix.secret ? { state: "decrypting" } : legacyLetter(mix)));
   const [linkKey, setLinkKey] = useState<string | null>(null);
+  const [now, setNow] = useState<NowPlaying | null>(null);
 
   // the key sits in the #fragment, which never reaches the server: decrypt here
   useEffect(() => {
@@ -98,6 +101,8 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
     try {
       const saved = Number(localStorage.getItem(queueKey(mix.id)));
       if (saved > 0) setQueuePosState(saved);
+      const playing = JSON.parse(localStorage.getItem(nowKey(mix.id)) ?? "null") as NowPlaying | null;
+      if (playing && playing.index >= 0 && playing.index < mix.tracks.length) setNow(playing);
     } catch {
       // storage blocked: the queue lasts this visit
     }
@@ -124,6 +129,17 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
       // storage blocked: the picker still works for this visit
     }
   }, [mix.id]);
+
+  /** a track was opened: swap the deck's tape, and remember it for when they come back */
+  function played(index: number) {
+    const next = { index, at: Date.now() };
+    setNow(next);
+    try {
+      localStorage.setItem(nowKey(mix.id), JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  }
 
   function choose(id: PlatformId) {
     setPlatform(id);
@@ -229,6 +245,14 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
             </p>
           )}
 
+          <MixDeck
+            tracks={tracks}
+            now={now}
+            subject={open ? open.title : locked ? null : "…"}
+            mixId={mix.id}
+            platformName={current?.name ?? null}
+          />
+
           <div className="picker">
             <p className="picker-label">
               {current ? (
@@ -266,6 +290,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
               embedded={embeddedIn !== null}
               pos={queuePos}
               setPos={setQueuePos}
+              onPlay={played}
             />
           )}
 
@@ -273,7 +298,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
             {tracks.map((t, i) => (
               <li
                 key={t.id}
-                className={`track${queueOn && i < queuePos! ? " track-played" : ""}${queueOn && i === queuePos ? " track-next" : ""}`}
+                className={`track${queueOn && i < queuePos! ? " track-played" : ""}${queueOn && i === queuePos ? " track-next" : ""}${now?.index === i ? " track-now" : ""}`}
               >
                 <span className="idx">{String(i + 1).padStart(2, "0")}</span>
                 <Cover src={t.cover} />
@@ -288,6 +313,7 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
                         platform={p}
                         device={device}
                         embedded={embeddedIn !== null}
+                        onOpen={() => played(i)}
                         title={`Abrir no ${p.name}`}
                       >
                         {p.code}
@@ -299,7 +325,10 @@ export default function MixView({ mix, isNew }: { mix: Mix; isNew: boolean }) {
                   <TrackLink
                     className="open-btn"
                     track={t}
-                    onOpen={queueOn ? () => setQueuePos(i + 1) : undefined}
+                    onOpen={() => {
+                      played(i);
+                      if (queueOn) setQueuePos(i + 1);
+                    }}
                     platform={current}
                     device={device}
                     embedded={embeddedIn !== null}
